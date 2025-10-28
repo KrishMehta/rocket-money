@@ -1,4 +1,5 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
   const spendingData = [
@@ -37,7 +38,30 @@ const Dashboard = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Good evening, Krish</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">Good evening, Krish</h1>
+
+      {/* Connect Accounts Banner */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-8 text-white shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-3xl">🏦</span>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-1">Connect Your Bank Accounts</h3>
+              <p className="text-blue-100 text-sm">
+                Securely link your accounts with Plaid to automatically track transactions and get personalized insights
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/connect-accounts"
+            className="px-6 py-3 bg-white text-blue-600 rounded-xl font-medium hover:bg-blue-50 transition-colors shadow-lg whitespace-nowrap ml-4"
+          >
+            Connect Now
+          </Link>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}

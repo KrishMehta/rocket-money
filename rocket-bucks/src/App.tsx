@@ -6,6 +6,7 @@ import Spending from './pages/Spending';
 import NetWorth from './pages/NetWorth';
 import Transactions from './pages/Transactions';
 import AIChat from './pages/AIChat';
+import ConnectAccounts from './pages/ConnectAccounts';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/net-worth" element={<NetWorth />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/ai-chat" element={<AIChat />} />
+          <Route path="/connect-accounts" element={<ConnectAccounts />} />
         </Routes>
       </Layout>
     </Router>
