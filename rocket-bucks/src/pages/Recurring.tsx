@@ -243,17 +243,6 @@ const Recurring = () => {
                     })}
                   </div>
                 </div>
-
-                {/* Bill Lowering Card */}
-                <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-sm p-6 text-white">
-                  <h4 className="font-bold mb-2">Looking to lower your bills?</h4>
-                  <p className="text-sm text-gray-300 mb-4">
-                    Our experts will negotiate with your provider for the best deals.
-                  </p>
-                  <button className="w-full py-3 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100">
-                    Lower my bills
-                  </button>
-                </div>
               </div>
             </div>
       )}
@@ -497,17 +486,6 @@ const Recurring = () => {
 
           {/* Sidebar */}
           <div className="space-y-6">
-          {/* Cancel subscription card */}
-          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-sm p-6 text-white">
-            <h4 className="font-bold mb-2">Looking to cancel a subscription?</h4>
-            <p className="text-sm text-gray-300 mb-4">
-              Our concierge team can cancel your unwanted subscriptions for you.
-            </p>
-            <button className="w-full py-3 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100">
-              Start a cancellation
-            </button>
-          </div>
-
           {/* My requests */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex items-center gap-2 mb-4">
