@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const Spending = () => {
+  const [activeTab, setActiveTab] = useState<'lastMonth' | 'thisMonth' | 'custom'>('thisMonth');
+  
   const monthlySpending = [
     { month: 'May', amount: 0 },
     { month: 'Jun', amount: 2000 },
@@ -8,6 +11,15 @@ const Spending = () => {
     { month: 'Aug', amount: 3500 },
     { month: 'Sep', amount: 2000 },
     { month: 'Oct', amount: 8761 },
+  ];
+
+  const lastMonthSpending = [
+    { month: 'Apr', amount: 1500 },
+    { month: 'May', amount: 0 },
+    { month: 'Jun', amount: 2000 },
+    { month: 'Jul', amount: 1500 },
+    { month: 'Aug', amount: 3500 },
+    { month: 'Sep', amount: 2000 },
   ];
 
   const categoryData = [
@@ -21,13 +33,23 @@ const Spending = () => {
     { name: 'Uncategorized', spend: 83, percent: 1, color: '#6b7280' },
   ];
 
+  const lastMonthCategoryData = [
+    { name: 'Education', spend: 2500, percent: 45, color: '#f97316' },
+    { name: 'Travel & Vacation', spend: 1200, percent: 22, color: '#3b82f6' },
+    { name: 'Shopping', spend: 800, percent: 15, color: '#ef4444' },
+    { name: 'Dining & Drinks', spend: 600, percent: 11, color: '#06b6d4' },
+    { name: 'Bills & Utilities', spend: 400, percent: 7, color: '#8b5cf6' },
+  ];
+
   const frequentMerchants = [
     { name: 'Lyft', average: 325.38, amount: 325.82 },
     { name: 'Pan Iron Qiaji', average: 79.51, amount: 99.42 },
     { name: 'Uber Eats', average: 118.66, amount: 137.64 },
   ];
 
-  const totalSpend = categoryData.reduce((sum, cat) => sum + cat.spend, 0);
+  const currentCategoryData = activeTab === 'lastMonth' ? lastMonthCategoryData : categoryData;
+  const currentSpendingData = activeTab === 'lastMonth' ? lastMonthSpending : monthlySpending;
+  const totalSpend = currentCategoryData.reduce((sum, cat) => sum + cat.spend, 0);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -35,13 +57,34 @@ const Spending = () => {
 
       {/* Tabs */}
       <div className="flex gap-6 mb-6 border-b border-gray-200">
-        <button className="px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900">
+        <button 
+          onClick={() => setActiveTab('lastMonth')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'lastMonth' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           Last Month
         </button>
-        <button className="px-4 py-3 text-sm font-medium text-gray-900 border-b-2 border-red-600">
+        <button 
+          onClick={() => setActiveTab('thisMonth')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'thisMonth' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           This Month
         </button>
-        <button className="px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900">
+        <button 
+          onClick={() => setActiveTab('custom')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'custom' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           Custom
         </button>
       </div>
@@ -49,11 +92,36 @@ const Spending = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Custom Date Range Picker */}
+          {activeTab === 'custom' ? (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Select Time Period</h3>
+              <div className="space-y-3">
+                <button className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">Weekly</span>
+                  <span className="text-gray-400">›</span>
+                </button>
+                <button className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">Monthly</span>
+                  <span className="text-gray-400">›</span>
+                </button>
+                <button className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">Quarterly</span>
+                  <span className="text-gray-400">›</span>
+                </button>
+                <button className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">Yearly</span>
+                  <span className="text-gray-400">›</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           {/* Spending Chart */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Monthly Spending</h3>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={monthlySpending}>
+              <BarChart data={currentSpendingData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="month" stroke="#888" />
                 <YAxis stroke="#888" />
@@ -80,7 +148,7 @@ const Spending = () => {
                   <ResponsiveContainer width={300} height={300}>
                     <PieChart>
                       <Pie
-                        data={categoryData}
+                        data={currentCategoryData}
                         cx="50%"
                         cy="50%"
                         innerRadius={80}
@@ -88,7 +156,7 @@ const Spending = () => {
                         paddingAngle={2}
                         dataKey="spend"
                       >
-                        {categoryData.map((entry, index) => (
+                        {currentCategoryData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
@@ -103,7 +171,7 @@ const Spending = () => {
 
               {/* Category List */}
               <div className="space-y-3">
-                {categoryData.map((category, index) => (
+                {currentCategoryData.map((category, index) => (
                   <div key={index} className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1">
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: category.color }}>
@@ -125,6 +193,8 @@ const Spending = () => {
               </div>
             </div>
           </div>
+            </>
+          )}
         </div>
 
         {/* Sidebar */}

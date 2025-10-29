@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const NetWorth = () => {
+  const [activeTab, setActiveTab] = useState<'summary' | 'assets' | 'debt'>('summary');
   const netWorthData = [
     { month: 'Apr', value: 0 },
     { month: 'May', value: 5000 },
@@ -41,13 +43,34 @@ const NetWorth = () => {
 
       {/* Tabs */}
       <div className="flex gap-6 mb-6 border-b border-gray-200">
-        <button className="px-4 py-3 text-sm font-medium text-gray-900 border-b-2 border-red-600">
+        <button 
+          onClick={() => setActiveTab('summary')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'summary' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           Summary
         </button>
-        <button className="px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900">
+        <button 
+          onClick={() => setActiveTab('assets')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'assets' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           Assets
         </button>
-        <button className="px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900">
+        <button 
+          onClick={() => setActiveTab('debt')}
+          className={`px-4 py-3 text-sm font-medium ${
+            activeTab === 'debt' 
+              ? 'text-gray-900 border-b-2 border-red-600' 
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
           Debt
         </button>
       </div>
@@ -55,57 +78,60 @@ const NetWorth = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Net Worth Chart */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="mb-6">
-              <p className="text-sm text-gray-600 mb-2">Total net worth</p>
-              <h2 className="text-4xl font-bold text-gray-900 mb-3">$19,936</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-green-600">↑</span>
-                <p className="text-sm text-gray-600">Up $19,936 over the last 6 months</p>
+          {/* Net Worth Chart - Only show on Summary tab */}
+          {activeTab === 'summary' && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <div className="mb-6">
+                <p className="text-sm text-gray-600 mb-2">Total net worth</p>
+                <h2 className="text-4xl font-bold text-gray-900 mb-3">$19,936</h2>
+                <div className="flex items-center gap-2">
+                  <span className="text-green-600">↑</span>
+                  <p className="text-sm text-gray-600">Up $19,936 over the last 6 months</p>
+                </div>
               </div>
-            </div>
 
-            <div className="mb-4">
-              <div className="flex gap-2 justify-end">
-                {['1M', '3M', '6M', '1Y', 'ALL'].map((period) => (
-                  <button
-                    key={period}
-                    className={`px-3 py-1 text-xs font-medium rounded ${
-                      period === '6M'
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {period}
-                  </button>
-                ))}
+              <div className="mb-4">
+                <div className="flex gap-2 justify-end">
+                  {['1M', '3M', '6M', '1Y', 'ALL'].map((period) => (
+                    <button
+                      key={period}
+                      className={`px-3 py-1 text-xs font-medium rounded ${
+                        period === '6M'
+                          ? 'bg-gray-900 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={netWorthData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#3b82f6"
-                  strokeWidth={3}
-                  dot={{ fill: '#3b82f6', r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={netWorthData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" stroke="#888" />
+                  <YAxis stroke="#888" />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#3b82f6"
+                    strokeWidth={3}
+                    dot={{ fill: '#3b82f6', r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Assets */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Assets</h3>
-              <p className="text-sm text-gray-600">Your assets have remained about the same this month</p>
-            </div>
+          {(activeTab === 'summary' || activeTab === 'assets') && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Assets</h3>
+                <p className="text-sm text-gray-600">Your assets have remained about the same this month</p>
+              </div>
 
             <div className="space-y-3">
               {assets.map((asset, index) => (
@@ -142,14 +168,16 @@ const NetWorth = () => {
               </button>
               <h4 className="text-2xl font-bold text-gray-900">$20,546</h4>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* Debts */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Debt</h3>
-              <p className="text-sm text-gray-600">Your debts have remained about the same this month</p>
-            </div>
+          {(activeTab === 'summary' || activeTab === 'debt') && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Debt</h3>
+                <p className="text-sm text-gray-600">Your debts have remained about the same this month</p>
+              </div>
 
             <div className="space-y-3">
               {debts.map((debt, index) => (
@@ -184,7 +212,8 @@ const NetWorth = () => {
               </button>
               <h4 className="text-2xl font-bold text-gray-900">$610</h4>
             </div>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
