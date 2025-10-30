@@ -140,28 +140,6 @@ const Dashboard = () => {
               See more transactions
             </button>
           </div>
-
-          {/* Lower your bills card */}
-          <div className="bg-gradient-to-r from-purple-900 to-purple-800 rounded-2xl shadow-sm p-6 text-white">
-            <h3 className="text-xl font-bold mb-2">Lower your bills</h3>
-            <p className="text-sm text-purple-200 mb-6">
-              We can help you optimize your bills, from cable & internet to auto insurance and student loans.
-            </p>
-            <div className="bg-white/10 rounded-xl p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
-                  P+
-                </div>
-                <div>
-                  <p className="font-semibold">Paramount+</p>
-                  <p className="text-sm text-purple-200">We can help you save up to 25% on this bill</p>
-                </div>
-              </div>
-              <button className="px-4 py-2 bg-white text-purple-900 rounded-lg font-medium hover:bg-gray-100">
-                Lower this bill
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Sidebar */}
@@ -239,17 +217,6 @@ const Dashboard = () => {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* Cancel subscription card */}
-          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-sm p-6 text-white">
-            <h4 className="font-bold mb-2">Looking to cancel a subscription?</h4>
-            <p className="text-sm text-gray-300 mb-4">
-              Our concierge team can cancel your unwanted subscriptions for you.
-            </p>
-            <button className="w-full py-3 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100">
-              Start a cancellation
-            </button>
           </div>
         </div>
       </div>
