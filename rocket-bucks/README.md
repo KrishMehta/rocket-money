@@ -1,11 +1,77 @@
-# React + TypeScript + Vite
+# 🚀 Rocket Bucks
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern personal finance management app with real-time bank account integration powered by Plaid.
 
-Currently, two official plugins are available:
+## ✨ Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 💰 **Real Bank Integration**: Connect actual financial institutions via Plaid
+- 📊 **Transaction Tracking**: Automatically import and categorize transactions
+- 💳 **Multiple Accounts**: Link checking, savings, credit cards, and investment accounts
+- 📈 **Net Worth Tracking**: View all your accounts in one place
+- 🤖 **AI Insights**: Get intelligent financial insights
+- 🎯 **Spending Analysis**: Track and analyze your spending patterns
+- 🔄 **Recurring Transactions**: Identify subscription and recurring payments
+
+## 🏦 Production Environment
+
+**This app is configured for Plaid's production environment** - users can connect their real bank accounts and see actual financial data from 11,000+ supported institutions.
+
+## 🚀 Quick Start
+
+See **[PRODUCTION_SETUP.md](./PRODUCTION_SETUP.md)** for detailed setup instructions.
+
+### Prerequisites
+
+- Node.js 18+ installed
+- Plaid production API credentials
+- Approved for Plaid production access
+
+### Installation
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env` file with your Plaid production credentials:
+
+```env
+PLAID_CLIENT_ID=your_plaid_client_id
+PLAID_SECRET=your_production_secret
+PORT=3001
+```
+
+3. Start the application:
+
+```bash
+# Terminal 1 - Backend
+npm run server
+
+# Terminal 2 - Frontend  
+npm run dev
+```
+
+4. Navigate to [http://localhost:5173](http://localhost:5173)
+
+## 📚 Documentation
+
+- **[PRODUCTION_SETUP.md](./PRODUCTION_SETUP.md)** - Complete production setup guide
+- **[README_PLAID.md](./README_PLAID.md)** - Plaid integration details
+- **[PLAID_SETUP.md](./PLAID_SETUP.md)** - Quick setup reference
+
+## 🔐 Security
+
+- Bank-level encryption (256-bit SSL)
+- Read-only access to accounts
+- Credentials never stored
+- Environment variables protected via .gitignore
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React + TypeScript + Vite + Tailwind CSS
+- **Backend**: Express.js + Node.js
+- **Integration**: Plaid API (Production)
 
 ## React Compiler
 
