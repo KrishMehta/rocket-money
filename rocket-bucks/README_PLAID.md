@@ -21,11 +21,11 @@ touch .env
 
 # Add your Plaid credentials
 echo "PLAID_CLIENT_ID=your_client_id_here" >> .env
-echo "PLAID_SECRET=your_sandbox_secret_here" >> .env
+echo "PLAID_SECRET=your_production_secret_here" >> .env
 echo "PORT=3001" >> .env
 ```
 
-**Replace** `your_client_id_here` and `your_sandbox_secret_here` with your actual credentials.
+**Important**: Replace `your_client_id_here` and `your_production_secret_here` with your actual **production** credentials from the Plaid dashboard (Team Settings > Keys).
 
 ### 3. Start the Application
 
@@ -41,17 +41,18 @@ npm run server
 npm run dev
 ```
 
-### 4. Connect Your First Account
+### 4. Connect Your First Real Account
 
 1. Navigate to [http://localhost:5173](http://localhost:5173)
 2. Click the blue **"Connect Now"** banner on the dashboard
 3. Click **"Connect Bank Account with Plaid"**
-4. Use Plaid's test credentials:
-   - **Username:** `user_good`
-   - **Password:** `pass_good`
-   - **PIN/Code:** `1234`
-5. Select any test bank and accounts
-6. Your accounts will appear in Rocket Bucks!
+4. **Search for your actual bank** (e.g., Chase, Bank of America, Wells Fargo, etc.)
+5. **Log in with your real banking credentials**
+   - Plaid uses bank-level security
+   - Your credentials are never stored by the app
+   - You're connecting to your actual financial institution
+6. Select the accounts you want to connect
+7. Your real accounts and transactions will appear in Rocket Bucks!
 
 ## 🔐 Security Features
 
@@ -72,39 +73,33 @@ Once connected, you can:
 - 💳 **Categorize spending** automatically
 - 📉 **Analyze trends** over time
 
-## 🧪 Testing with Plaid Sandbox
+## 🏦 Supported Financial Institutions
 
-Plaid provides test credentials for development:
+The app now uses **Plaid's production environment**, giving you access to 11,000+ financial institutions including:
 
-### Test Bank Accounts
+- 🏦 Major banks: Chase, Bank of America, Wells Fargo, Citi, US Bank
+- 💳 Credit unions and regional banks
+- 💰 Investment accounts: Fidelity, Vanguard, Charles Schwab
+- 🏛️ Credit card issuers: American Express, Capital One, Discover
 
-| Username | Password | Description |
-|----------|----------|-------------|
-| `user_good` | `pass_good` | Successfully connects with test data |
-| `user_custom` | `pass_good` | Allows custom configuration |
+Simply search for your institution in the Plaid Link flow and log in with your real credentials.
 
-### Test Institution
+## 🚀 Production Status
 
-Choose **"First Platypus Bank"** or any other test institution in the Plaid Link flow.
+✅ **The app is now configured for production!**
 
-## 🚀 Production Deployment
+Current setup:
+- ✅ Using Plaid's production environment
+- ✅ Connects to real financial institutions
+- ✅ Imports real transaction data
 
-To use Plaid in production:
-
-1. **Apply for Production Access** in the Plaid dashboard
-2. **Update environment** in `server.js`:
-   ```javascript
-   basePath: PlaidEnvironments.production
-   ```
-3. **Use production secret** in `.env`:
-   ```
-   PLAID_SECRET=your_production_secret
-   ```
-4. **Implement proper security**:
-   - Store access tokens in encrypted database
-   - Use HTTPS for all requests
-   - Implement user authentication
-   - Add rate limiting
+**Important security considerations for deployment**:
+- 🔐 Store access tokens in an encrypted database (currently using localStorage for demo)
+- 🛡️ Use HTTPS for all requests
+- 👤 Implement user authentication and authorization
+- ⚡ Add rate limiting to prevent API abuse
+- 🔄 Implement webhooks for real-time updates
+- 💾 Add proper data persistence and backup
 
 ## 📁 Project Structure
 
