@@ -11,11 +11,11 @@ app.use(express.json());
 
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox, // Use sandbox for testing
+  basePath: PlaidEnvironments.production,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID || 'your_client_id',
-      'PLAID-SECRET': process.env.PLAID_SECRET || 'your_sandbox_secret',
+      'PLAID-SECRET': process.env.PLAID_SECRET || 'your_production_secret',
     },
   },
 });
