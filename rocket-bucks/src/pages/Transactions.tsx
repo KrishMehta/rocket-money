@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../utils/api';
 
@@ -18,20 +18,42 @@ const Transactions = () => {
   const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
 
-  // Sync transactions from Plaid
-  const syncTransactions = async () => {
+  // Manually sync transactions from Plaid (rate limited)
+  const syncTransactionsFromPlaid = async () => {
     try {
       setSyncing(true);
       setSyncError(null);
-      console.log('🔄 Syncing transactions from Plaid...');
+      console.log('🔄 Manually syncing transactions from Plaid...');
       
-      // This endpoint fetches from Plaid and stores in DB
-      await api.getTransactions();
+      // Call the manual sync endpoint (rate limited)
+      const result = await api.syncTransactions();
       
       setLastSyncTime(new Date());
-      console.log('✅ Transactions synced successfully');
+      console.log('✅ Transactions synced successfully:', result.message);
       
       // Reload transactions after sync
+      loadTransactionsFromDB();
+    } catch (error: any) {
+      console.error('❌ Error syncing transactions:', error);
+      
+      // Handle rate limit error specifically
+      if (error.status === 429 && error.data) {
+        const { hours_remaining, minutes_remaining } = error.data;
+        setSyncError(
+          `Rate limit reached. You can sync again in ${hours_remaining} hour${hours_remaining !== 1 ? 's' : ''} and ${minutes_remaining} minute${minutes_remaining !== 1 ? 's' : ''}.`
+        );
+      } else {
+        setSyncError(error.message || 'Failed to sync transactions');
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Load transactions from database (no Plaid API call)
+  const loadTransactionsFromDB = useCallback(async () => {
+    try {
+      setLoading(true);
       const filters: any = {
         limit: itemsPerPage,
         offset: currentPage * itemsPerPage,
@@ -63,12 +85,12 @@ const Transactions = () => {
       setTransactions(result.transactions || []);
       setTotalCount(result.count || 0);
     } catch (error: any) {
-      console.error('❌ Error syncing transactions:', error);
-      setSyncError(error.message || 'Failed to sync transactions');
+      console.error('❌ Error loading transactions:', error);
+      setSyncError(error.message || 'Failed to load transactions');
     } finally {
-      setSyncing(false);
+      setLoading(false);
     }
-  };
+  }, [searchTerm, selectedCategory, selectedAccount, dateFilter, currentPage, itemsPerPage]);
 
   // Load accounts and categories for filters (only once)
   useEffect(() => {
@@ -89,63 +111,10 @@ const Transactions = () => {
     loadFilterData();
   }, []);
 
-  // Sync transactions from Plaid on first load
+  // Load transactions when filters change (reads from database only, no Plaid sync)
   useEffect(() => {
-    syncTransactions();
-  }, []); // Only run once on mount
-
-  // Load transactions with filters
-  useEffect(() => {
-    const loadTransactions = async () => {
-      try {
-        setLoading(true);
-        const filters: any = {
-          limit: itemsPerPage,
-          offset: currentPage * itemsPerPage,
-        };
-
-        if (searchTerm) {
-          filters.search = searchTerm;
-        }
-
-        if (selectedCategory) {
-          filters.user_category_name = selectedCategory;
-        }
-
-        if (selectedAccount) {
-          filters.account_id = selectedAccount;
-        }
-
-        if (dateFilter !== 'all') {
-          const now = new Date();
-          if (dateFilter === 'thisMonth') {
-            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-            filters.start_date = firstDay.toISOString().split('T')[0];
-            filters.end_date = now.toISOString().split('T')[0];
-          } else if (dateFilter === 'lastMonth') {
-            const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-            filters.start_date = firstDayLastMonth.toISOString().split('T')[0];
-            filters.end_date = lastDayLastMonth.toISOString().split('T')[0];
-          } else if (dateFilter === 'last3Months') {
-            const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-            filters.start_date = threeMonthsAgo.toISOString().split('T')[0];
-            filters.end_date = now.toISOString().split('T')[0];
-          }
-        }
-
-        const result = await api.searchTransactions(filters);
-        setTransactions(result.transactions || []);
-        setTotalCount(result.count || 0);
-      } catch (error) {
-        console.error('Error loading transactions:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTransactions();
-  }, [searchTerm, selectedCategory, selectedAccount, dateFilter, currentPage]);
+    loadTransactionsFromDB();
+  }, [loadTransactionsFromDB]);
 
   const getCategoryIcon = (transaction: any) => {
     if (transaction.transaction_categories?.icon) {
@@ -205,9 +174,10 @@ const Transactions = () => {
         </div>
         <div className="flex gap-3 items-center">
           <button 
-            onClick={syncTransactions}
+            onClick={syncTransactionsFromPlaid}
             disabled={syncing}
             className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            title="Manually sync transactions from Plaid (limited to once per 24 hours)"
           >
             <span className={syncing ? 'animate-spin' : ''}>🔄</span>
             {syncing ? 'Syncing...' : 'Sync from Plaid'}

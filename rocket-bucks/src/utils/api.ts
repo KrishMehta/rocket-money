@@ -189,9 +189,9 @@ export const api = {
   },
 
   /**
-   * Get transactions for the authenticated user
+   * Get transactions for the authenticated user (from database, no syncing)
    */
-  getTransactions: async (): Promise<{ transactions: any[] }> => {
+  getTransactions: async (): Promise<{ transactions: any[]; last_synced: string | null }> => {
     const response = await fetch(`${getApiUrl()}/transactions`, {
       method: 'GET',
       headers: getAuthHeaders(),
@@ -200,6 +200,32 @@ export const api = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || 'Failed to fetch transactions');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Manually sync transactions from Plaid (rate limited to once per 24 hours)
+   */
+  syncTransactions: async (): Promise<{ 
+    success: boolean; 
+    message: string; 
+    synced_count: number;
+    synced_at: string;
+  }> => {
+    const response = await fetch(`${getApiUrl()}/transactions/sync`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      // Pass through the full error object for rate limit handling
+      const errorObj = new Error(error.message || error.error || 'Failed to sync transactions');
+      (errorObj as any).status = response.status;
+      (errorObj as any).data = error;
+      throw errorObj;
     }
 
     return response.json();

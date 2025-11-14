@@ -220,8 +220,83 @@ app.post('/api/exchange_public_token', async (req, res) => {
   }
 });
 
-// Get transactions - syncs from Plaid and returns from database
+// Get transactions from database (read-only, no syncing)
 app.get('/api/transactions', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Get last sync time from plaid_items
+    const { data: plaidItems } = await supabase
+      .from('plaid_items')
+      .select('updated_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    const lastSynced = plaidItems?.[0]?.updated_at || null;
+
+    // Just return transactions from database (no syncing)
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+    const endDate = now.toISOString().split('T')[0];
+
+    // Use explicit relationship name to avoid ambiguity with transfer_to_account_id
+    const { data: dbTransactions } = await supabase
+      .from('transactions')
+      .select(`
+        *,
+        accounts!transactions_account_id_fkey (
+          name,
+          mask,
+          institution_name,
+          type,
+          subtype
+        ),
+        transaction_categories (
+          name,
+          icon,
+          color
+        )
+      `)
+      .eq('user_id', user.id)
+      .gte('date', startDate)
+      .lte('date', endDate)
+      .order('date', { ascending: false })
+      .limit(500);
+
+    res.json({ 
+      transactions: dbTransactions || [],
+      last_synced: lastSynced
+    });
+  } catch (error) {
+    console.error('❌ Error fetching transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch transactions',
+      details: error.message 
+    });
+  }
+});
+
+// Manual sync endpoint with 24-hour rate limit
+app.post('/api/transactions/sync', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -249,16 +324,44 @@ app.get('/api/transactions', async (req, res) => {
       .eq('user_id', user.id);
 
     if (itemsError || !plaidItems || plaidItems.length === 0) {
-      return res.json({ transactions: [] });
+      return res.status(400).json({ error: 'No accounts connected. Please connect an account first.' });
+    }
+
+    // Check if any item has been synced in the last 24 hours
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    let mostRecentSync = null;
+    for (const item of plaidItems) {
+      const itemUpdatedAt = new Date(item.updated_at);
+      if (!mostRecentSync || itemUpdatedAt > mostRecentSync) {
+        mostRecentSync = itemUpdatedAt;
+      }
+    }
+
+    // Rate limiting: Prevent sync if done in last 24 hours
+    if (mostRecentSync && mostRecentSync > twentyFourHoursAgo) {
+      const hoursUntilNextSync = 24 - ((now.getTime() - mostRecentSync.getTime()) / (1000 * 60 * 60));
+      const minutesUntilNextSync = Math.ceil(hoursUntilNextSync * 60);
+      
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded',
+        message: `You can sync again in ${Math.floor(hoursUntilNextSync)} hours and ${minutesUntilNextSync % 60} minutes`,
+        next_sync_available: new Date(mostRecentSync.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        last_synced: mostRecentSync.toISOString(),
+        hours_remaining: Math.floor(hoursUntilNextSync),
+        minutes_remaining: minutesUntilNextSync % 60
+      });
     }
 
     // Fetch transactions from Plaid for all items
-    const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const startDate = thirtyDaysAgo.toISOString().split('T')[0];
     const endDate = now.toISOString().split('T')[0];
 
-    console.log(`🔄 Syncing transactions for user ${user.id} from ${startDate} to ${endDate}`);
+    console.log(`🔄 Manual sync: Syncing transactions for user ${user.id} from ${startDate} to ${endDate}`);
+
+    let totalSynced = 0;
 
     for (const item of plaidItems) {
       try {
@@ -332,44 +435,32 @@ app.get('/api/transactions', async (req, res) => {
                 onConflict: 'account_id,transaction_id',
               });
             console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+            totalSynced += transactionsToInsert.length;
           }
         }
+
+        // Update the plaid_item's updated_at timestamp to track last sync
+        await supabase
+          .from('plaid_items')
+          .update({ updated_at: now.toISOString() })
+          .eq('id', item.id);
+
       } catch (error) {
         console.error(`Error fetching transactions for item ${item.id}:`, error);
       }
     }
 
-    // Return transactions from database (more reliable)
-    // Use explicit relationship name to avoid ambiguity with transfer_to_account_id
-    const { data: dbTransactions } = await supabase
-      .from('transactions')
-      .select(`
-        *,
-        accounts!transactions_account_id_fkey (
-          name,
-          mask,
-          institution_name,
-          type,
-          subtype
-        ),
-        transaction_categories (
-          name,
-          icon,
-          color
-        )
-      `)
-      .eq('user_id', user.id)
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date', { ascending: false })
-      .limit(500);
-
-    console.log(`✅ Returning ${dbTransactions?.length || 0} transactions`);
-    res.json({ transactions: dbTransactions || [] });
+    console.log(`✅ Manual sync complete: ${totalSynced} transactions synced`);
+    res.json({ 
+      success: true,
+      message: `Successfully synced ${totalSynced} transaction${totalSynced !== 1 ? 's' : ''}`,
+      synced_count: totalSynced,
+      synced_at: now.toISOString()
+    });
   } catch (error) {
-    console.error('❌ Error fetching transactions:', error);
+    console.error('❌ Error syncing transactions:', error);
     res.status(500).json({ 
-      error: 'Failed to fetch transactions',
+      error: 'Failed to sync transactions',
       details: error.message 
     });
   }
