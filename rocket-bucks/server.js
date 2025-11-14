@@ -220,23 +220,334 @@ app.post('/api/exchange_public_token', async (req, res) => {
   }
 });
 
-// Get transactions
-app.post('/api/transactions', async (req, res) => {
+// Get transactions - syncs from Plaid and returns from database
+app.get('/api/transactions', async (req, res) => {
   try {
-    const { access_token } = req.body;
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-    const response = await plaidClient.transactionsGet({
-      access_token,
-      start_date: thirtyDaysAgo.toISOString().split('T')[0],
-      end_date: now.toISOString().split('T')[0],
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
     });
 
-    res.json({ transactions: response.data.transactions });
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Get user's Plaid items
+    const { data: plaidItems, error: itemsError } = await supabase
+      .from('plaid_items')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (itemsError || !plaidItems || plaidItems.length === 0) {
+      return res.json({ transactions: [] });
+    }
+
+    // Fetch transactions from Plaid for all items
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+    const endDate = now.toISOString().split('T')[0];
+
+    console.log(`🔄 Syncing transactions for user ${user.id} from ${startDate} to ${endDate}`);
+
+    for (const item of plaidItems) {
+      try {
+        // Decrypt access token if it's encrypted
+        let accessToken = item.access_token;
+        if (encryptionKey && accessToken.includes(':')) {
+          try {
+            accessToken = decrypt(accessToken, encryptionKey);
+          } catch (decryptError) {
+            console.error(`Error decrypting access token for item ${item.id}:`, decryptError);
+            continue;
+          }
+        }
+
+        const response = await plaidClient.transactionsGet({
+          access_token: accessToken,
+          start_date: startDate,
+          end_date: endDate,
+        });
+
+        console.log(`✅ Fetched ${response.data.transactions.length} transactions from ${item.institution_name}`);
+
+        // Get account mappings
+        const { data: accounts } = await supabase
+          .from('accounts')
+          .select('id, account_id')
+          .eq('plaid_item_id', item.id);
+
+        const accountMap = new Map(accounts?.map(a => [a.account_id, a.id]) || []);
+
+        // Store transactions in database
+        if (response.data.transactions.length > 0) {
+          const transactionsToInsert = response.data.transactions.map((tx) => {
+            const dbAccountId = accountMap.get(tx.account_id);
+            return {
+              user_id: user.id,
+              account_id: dbAccountId,
+              transaction_id: tx.transaction_id,
+              amount: tx.amount,
+              date: tx.date,
+              authorized_date: tx.authorized_date || null,
+              posted_date: tx.date,
+              name: tx.name,
+              // Plaid categorization
+              plaid_category: tx.category || [],
+              plaid_primary_category: tx.category?.[0] || null,
+              plaid_detailed_category: tx.category ? tx.category.join(' > ') : null,
+              // Merchant and location
+              merchant_name: tx.merchant_name || null,
+              location_city: tx.location?.city || null,
+              location_state: tx.location?.region || null,
+              location_country: tx.location?.country || null,
+              location_address: tx.location?.address || null,
+              location_lat: tx.location?.lat || null,
+              location_lon: tx.location?.lon || null,
+              // Transaction metadata
+              // Plaid: positive = debit (expense), negative = credit (income)
+              transaction_type: tx.amount > 0 ? 'expense' : 'income',
+              payment_channel: tx.payment_channel || null,
+              check_number: tx.check_number || null,
+              // Flags
+              pending: tx.pending || false,
+              is_transfer: tx.amount === 0 || false,
+            };
+          }).filter((tx) => tx.account_id);
+
+          if (transactionsToInsert.length > 0) {
+            await supabase
+              .from('transactions')
+              .upsert(transactionsToInsert, {
+                onConflict: 'account_id,transaction_id',
+              });
+            console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching transactions for item ${item.id}:`, error);
+      }
+    }
+
+    // Return transactions from database (more reliable)
+    // Use explicit relationship name to avoid ambiguity with transfer_to_account_id
+    const { data: dbTransactions } = await supabase
+      .from('transactions')
+      .select(`
+        *,
+        accounts!transactions_account_id_fkey (
+          name,
+          mask,
+          institution_name,
+          type,
+          subtype
+        ),
+        transaction_categories (
+          name,
+          icon,
+          color
+        )
+      `)
+      .eq('user_id', user.id)
+      .gte('date', startDate)
+      .lte('date', endDate)
+      .order('date', { ascending: false })
+      .limit(500);
+
+    console.log(`✅ Returning ${dbTransactions?.length || 0} transactions`);
+    res.json({ transactions: dbTransactions || [] });
   } catch (error) {
-    console.error('Error fetching transactions:', error);
-    res.status(500).json({ error: 'Failed to fetch transactions' });
+    console.error('❌ Error fetching transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch transactions',
+      details: error.message 
+    });
+  }
+});
+
+// Search transactions endpoint
+app.get('/api/transactions/search', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Get query parameters
+    const {
+      search,
+      category_id,
+      user_category_name,
+      merchant_name,
+      account_id,
+      start_date,
+      end_date,
+      transaction_type,
+      pending,
+      tags,
+      min_amount,
+      max_amount,
+      limit = 100,
+      offset = 0,
+    } = req.query;
+
+    // Start building query
+    // Use explicit relationship name to avoid ambiguity with transfer_to_account_id
+    let query = supabase
+      .from('transactions')
+      .select(`
+        *,
+        accounts!transactions_account_id_fkey (
+          name,
+          mask,
+          institution_name,
+          type,
+          subtype
+        ),
+        transaction_categories (
+          name,
+          icon,
+          color
+        )
+      `, { count: 'exact' })
+      .eq('user_id', user.id);
+
+    // Apply filters
+    if (search) {
+      query = query.ilike('name', `%${search}%`);
+    }
+
+    if (category_id) {
+      query = query.eq('category_id', category_id);
+    }
+
+    if (user_category_name) {
+      query = query.eq('user_category_name', user_category_name);
+    }
+
+    if (merchant_name) {
+      query = query.ilike('merchant_name', `%${merchant_name}%`);
+    }
+
+    if (account_id) {
+      query = query.eq('account_id', account_id);
+    }
+
+    if (start_date) {
+      query = query.gte('date', start_date);
+    }
+
+    if (end_date) {
+      query = query.lte('date', end_date);
+    }
+
+    if (transaction_type) {
+      query = query.eq('transaction_type', transaction_type);
+    }
+
+    if (pending !== undefined) {
+      query = query.eq('pending', pending === 'true');
+    }
+
+    if (tags) {
+      const tagsArray = Array.isArray(tags) ? tags : [tags];
+      query = query.contains('tags', tagsArray);
+    }
+
+    if (min_amount !== undefined) {
+      query = query.gte('amount', min_amount);
+    }
+
+    if (max_amount !== undefined) {
+      query = query.lte('amount', max_amount);
+    }
+
+    // Order and paginate
+    query = query
+      .order('date', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    const { data: transactions, error, count } = await query;
+
+    if (error) {
+      console.error('Error searching transactions:', error);
+      return res.status(500).json({ error: 'Failed to search transactions' });
+    }
+
+    res.json({
+      transactions: transactions || [],
+      count: count || 0,
+      limit: Number(limit),
+      offset: Number(offset),
+    });
+  } catch (error) {
+    console.error('Error searching transactions:', error);
+    res.status(500).json({ error: error.message || 'Failed to search transactions' });
+  }
+});
+
+// Get categories endpoint
+app.get('/api/categories', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Get categories (system categories + user's custom categories)
+    const { data: categories, error: categoriesError } = await supabase
+      .from('transaction_categories')
+      .select('*')
+      .or(`user_id.eq.${user.id},is_system.eq.true`)
+      .order('name', { ascending: true });
+
+    if (categoriesError) {
+      console.error('Error fetching categories:', categoriesError);
+      return res.status(500).json({ error: 'Failed to fetch categories' });
+    }
+
+    res.json({ categories: categories || [] });
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch categories' });
   }
 });
 

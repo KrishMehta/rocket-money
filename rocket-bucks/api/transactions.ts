@@ -107,7 +107,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               location_lat: tx.location?.lat || null,
               location_lon: tx.location?.lon || null,
               // Transaction metadata
-              transaction_type: tx.amount < 0 ? 'expense' : 'income',
+              // Plaid: positive = debit (expense), negative = credit (income)
+              transaction_type: tx.amount > 0 ? 'expense' : 'income',
               payment_channel: tx.payment_channel || null,
               check_number: tx.check_number || null,
               // Flags

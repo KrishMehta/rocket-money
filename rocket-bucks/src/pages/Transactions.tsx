@@ -7,6 +7,9 @@ const Transactions = () => {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -14,6 +17,58 @@ const Transactions = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
+
+  // Sync transactions from Plaid
+  const syncTransactions = async () => {
+    try {
+      setSyncing(true);
+      setSyncError(null);
+      console.log('🔄 Syncing transactions from Plaid...');
+      
+      // This endpoint fetches from Plaid and stores in DB
+      await api.getTransactions();
+      
+      setLastSyncTime(new Date());
+      console.log('✅ Transactions synced successfully');
+      
+      // Reload transactions after sync
+      const filters: any = {
+        limit: itemsPerPage,
+        offset: currentPage * itemsPerPage,
+      };
+      
+      if (searchTerm) filters.search = searchTerm;
+      if (selectedCategory) filters.user_category_name = selectedCategory;
+      if (selectedAccount) filters.account_id = selectedAccount;
+      
+      if (dateFilter !== 'all') {
+        const now = new Date();
+        if (dateFilter === 'thisMonth') {
+          const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+          filters.start_date = firstDay.toISOString().split('T')[0];
+          filters.end_date = now.toISOString().split('T')[0];
+        } else if (dateFilter === 'lastMonth') {
+          const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+          filters.start_date = firstDayLastMonth.toISOString().split('T')[0];
+          filters.end_date = lastDayLastMonth.toISOString().split('T')[0];
+        } else if (dateFilter === 'last3Months') {
+          const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+          filters.start_date = threeMonthsAgo.toISOString().split('T')[0];
+          filters.end_date = now.toISOString().split('T')[0];
+        }
+      }
+      
+      const result = await api.searchTransactions(filters);
+      setTransactions(result.transactions || []);
+      setTotalCount(result.count || 0);
+    } catch (error: any) {
+      console.error('❌ Error syncing transactions:', error);
+      setSyncError(error.message || 'Failed to sync transactions');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Load accounts and categories for filters (only once)
   useEffect(() => {
@@ -33,6 +88,11 @@ const Transactions = () => {
 
     loadFilterData();
   }, []);
+
+  // Sync transactions from Plaid on first load
+  useEffect(() => {
+    syncTransactions();
+  }, []); // Only run once on mount
 
   // Load transactions with filters
   useEffect(() => {
@@ -135,8 +195,23 @@ const Transactions = () => {
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-        <div className="flex gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
+          {lastSyncTime && (
+            <p className="text-sm text-gray-500 mt-1">
+              Last synced: {lastSyncTime.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-3 items-center">
+          <button 
+            onClick={syncTransactions}
+            disabled={syncing}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <span className={syncing ? 'animate-spin' : ''}>🔄</span>
+            {syncing ? 'Syncing...' : 'Sync from Plaid'}
+          </button>
           <button className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2">
             <span>📥</span>
             Export
@@ -146,6 +221,23 @@ const Transactions = () => {
           </button>
         </div>
       </div>
+
+      {/* Sync Error Message */}
+      {syncError && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-red-500 text-xl">⚠️</span>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-red-800">Sync Error</h3>
+            <p className="text-sm text-red-600 mt-1">{syncError}</p>
+          </div>
+          <button 
+            onClick={() => setSyncError(null)}
+            className="text-red-400 hover:text-red-600"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
@@ -230,9 +322,12 @@ const Transactions = () => {
               {transactions.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-gray-500">
-                    {loading ? (
-                      <div className="flex items-center justify-center">
+                    {loading || syncing ? (
+                      <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-sm text-gray-600">
+                          {syncing ? 'Syncing transactions from Plaid...' : 'Loading transactions...'}
+                        </p>
                       </div>
                     ) : (
                       <>

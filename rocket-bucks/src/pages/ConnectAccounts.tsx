@@ -47,7 +47,17 @@ const ConnectAccounts = () => {
       const data = await api.getAccounts();
       setConnectedAccounts(data.accounts || []);
       
-      alert(`Successfully connected ${result.institution_name || 'your bank account'}!`);
+      // Sync transactions for the newly connected account
+      console.log('🔄 Syncing transactions...');
+      try {
+        await api.getTransactions();
+        console.log('✅ Transactions synced successfully');
+      } catch (syncError) {
+        console.error('❌ Error syncing transactions:', syncError);
+        // Don't fail the whole flow if sync fails - user can manually sync later
+      }
+      
+      alert(`Successfully connected ${result.institution_name || 'your bank account'}!\n\nTransactions are being synced. You can view them in the Transactions tab.`);
     } catch (error: any) {
       console.error('❌ Error connecting account:', error);
       alert(`Failed to connect account: ${error.message || 'Unknown error'}\n\nPlease try again.`);
