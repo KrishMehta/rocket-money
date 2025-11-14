@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PlaidLink from '../components/PlaidLink';
+import { api } from '../utils/api';
 
 interface Account {
   id: string;
@@ -7,46 +8,49 @@ interface Account {
   type: string;
   subtype: string;
   mask: string;
-  balance: number;
-  institutionName?: string;
+  balance_current: number;
+  institution_name?: string;
 }
 
 const ConnectAccounts = () => {
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
+
+  // Load existing accounts from database
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const data = await api.getAccounts();
+        setConnectedAccounts(data.accounts || []);
+      } catch (error) {
+        console.error('Error loading accounts:', error);
+      } finally {
+        setIsLoadingAccounts(false);
+      }
+    };
+
+    loadAccounts();
+  }, []);
 
   const handlePlaidSuccess = async (publicToken: string, metadata: any) => {
     setIsLoading(true);
     try {
-      // Exchange public token for access token
-      const response = await fetch('http://localhost:3001/api/exchange_public_token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ public_token: publicToken }),
-      });
-
-      const data = await response.json();
+      console.log('🔄 Exchanging Plaid public token...');
+      console.log('📋 Metadata:', metadata);
       
-      // Format accounts data
-      const formattedAccounts = data.accounts.map((account: any) => ({
-        id: account.account_id,
-        name: account.name,
-        type: account.type,
-        subtype: account.subtype,
-        mask: account.mask,
-        balance: account.balances.current || 0,
-        institutionName: metadata.institution?.name || 'Unknown Bank',
-      }));
-
-      setConnectedAccounts((prev) => [...prev, ...formattedAccounts]);
+      // Exchange public token for access token (this saves to database automatically)
+      const result = await api.exchangePublicToken(publicToken);
+      console.log('✅ Account connected:', result.institution_name);
       
-      // Store access token (in production, you'd store this securely in a database)
-      localStorage.setItem(`access_token_${data.item_id}`, data.access_token);
-    } catch (error) {
-      console.error('Error connecting account:', error);
-      alert('Failed to connect account. Please try again.');
+      // Reload accounts from database
+      const data = await api.getAccounts();
+      setConnectedAccounts(data.accounts || []);
+      
+      alert(`Successfully connected ${result.institution_name || 'your bank account'}!`);
+    } catch (error: any) {
+      console.error('❌ Error connecting account:', error);
+      alert(`Failed to connect account: ${error.message || 'Unknown error'}\n\nPlease try again.`);
     } finally {
       setIsLoading(false);
     }
@@ -117,7 +121,7 @@ const ConnectAccounts = () => {
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">
-                      {account.institutionName} {account.name}
+                      {account.institution_name || 'Bank'} {account.name}
                     </p>
                     <p className="text-sm text-gray-600">
                       {getAccountTypeLabel(account.type, account.subtype)} ••••{account.mask}
@@ -126,7 +130,7 @@ const ConnectAccounts = () => {
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-bold text-gray-900">
-                    ${account.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${(account.balance_current || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-xs text-green-600">✓ Connected</p>
                 </div>

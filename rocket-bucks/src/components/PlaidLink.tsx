@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
+import { api } from '../utils/api';
 
 interface PlaidLinkProps {
   onSuccess: (publicToken: string, metadata: any) => void;
@@ -13,16 +14,29 @@ const PlaidLink = ({ onSuccess, onExit, children }: PlaidLinkProps) => {
   useEffect(() => {
     const createLinkToken = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/create_link_token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-        const data = await response.json();
+        console.log('🔗 Creating Plaid link token...');
+        const data = await api.createLinkToken();
+        console.log('✅ Link token created');
         setLinkToken(data.link_token);
-      } catch (error) {
-        console.error('Error creating link token:', error);
+      } catch (error: any) {
+        console.error('❌ Error creating link token:', error);
+        const errorMsg = error.message || 'Unknown error';
+        
+        // More helpful error message
+        let userMessage = `Failed to initialize Plaid: ${errorMsg}`;
+        
+        if (errorMsg.includes('Network error') || errorMsg.includes('Cannot connect')) {
+          userMessage += '\n\n💡 Troubleshooting:\n';
+          userMessage += '1. Make sure the Express server is running (npm run server)\n';
+          userMessage += '2. Check that the server is on port 3001\n';
+          userMessage += '3. Verify VITE_API_URL in your .env file';
+        } else if (errorMsg.includes('Unauthorized') || errorMsg.includes('Invalid token')) {
+          userMessage += '\n\n💡 Please log out and log back in.';
+        } else {
+          userMessage += '\n\n💡 Make sure you\'re logged in and Plaid credentials are configured.';
+        }
+        
+        alert(userMessage);
       }
     };
 
@@ -32,9 +46,15 @@ const PlaidLink = ({ onSuccess, onExit, children }: PlaidLinkProps) => {
   const config = {
     token: linkToken,
     onSuccess: (public_token: string, metadata: any) => {
+      console.log('✅ Plaid Link success, public_token received');
       onSuccess(public_token, metadata);
     },
-    onExit: () => {
+    onExit: (err: any, metadata: any) => {
+      if (err) {
+        console.error('❌ Plaid Link exit with error:', err);
+      } else {
+        console.log('ℹ️ Plaid Link exited:', metadata);
+      }
       onExit?.();
     },
   };

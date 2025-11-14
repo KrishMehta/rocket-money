@@ -1,5 +1,10 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import Recurring from './pages/Recurring';
 import Spending from './pages/Spending';
@@ -10,7 +15,16 @@ import ConnectAccounts from './pages/ConnectAccounts';
 
 function App() {
   return (
+    <AuthProvider>
     <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -20,9 +34,15 @@ function App() {
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/ai-chat" element={<AIChat />} />
           <Route path="/connect-accounts" element={<ConnectAccounts />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
         </Routes>
-      </Layout>
     </Router>
+    </AuthProvider>
   );
 }
 

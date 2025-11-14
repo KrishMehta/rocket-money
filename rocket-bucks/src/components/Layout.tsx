@@ -1,7 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: '📊' },
@@ -47,10 +49,16 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </ul>
         </nav>
 
-        <div className="p-4 border-t border-gray-200">
-          <button className="w-full flex items-center px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <span className="mr-3 text-xl">💬</span>
-            <span className="font-medium">Chat with us</span>
+        <div className="p-4 border-t border-gray-200 space-y-2">
+          <div className="px-4 py-2 text-sm text-gray-600">
+            <p className="font-medium">{user?.email}</p>
+          </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <span className="mr-3 text-xl">🚪</span>
+            <span className="font-medium">Sign Out</span>
           </button>
         </div>
       </aside>
