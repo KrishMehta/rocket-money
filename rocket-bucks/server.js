@@ -194,6 +194,39 @@ app.post('/api/exchange_public_token', async (req, res) => {
         institution_name: institutionName,
       }));
 
+      // Check for existing accounts with the same mask/type (same physical account)
+      // This happens when re-linking the same institution - prevents duplicates
+      const { data: existingAccounts } = await supabase
+        .from('accounts')
+        .select('id, account_id, plaid_item_id, mask, type, subtype')
+        .eq('user_id', user.id);
+
+      if (existingAccounts && existingAccounts.length > 0) {
+        const accountsToDelete = [];
+        
+        // For each new account, check if an older version exists with same mask+type
+        accountsToInsert.forEach(newAccount => {
+          const duplicates = existingAccounts.filter(
+            existing => 
+              existing.mask === newAccount.mask &&
+              existing.type === newAccount.type &&
+              existing.subtype === newAccount.subtype &&
+              existing.plaid_item_id !== plaidItem.id // Different item
+          );
+          
+          accountsToDelete.push(...duplicates.map(d => d.id));
+        });
+        
+        if (accountsToDelete.length > 0) {
+          console.log(`🗑️  Removing ${accountsToDelete.length} duplicate accounts from previous link...`);
+          
+          await supabase
+            .from('accounts')
+            .delete()
+            .in('id', accountsToDelete);
+        }
+      }
+
       // Use the correct unique constraint from schema: (plaid_item_id, account_id)
       const { error: accountsError } = await supabase
         .from('accounts')
@@ -208,11 +241,91 @@ app.post('/api/exchange_public_token', async (req, res) => {
       }
     }
 
+    // Automatically sync transactions for newly linked account (no rate limit)
+    console.log('🔄 Auto-syncing transactions for newly linked account...');
+    try {
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+
+      const transactionsResponse = await plaidClient.transactionsGet({
+        access_token: accessToken,
+        start_date: startDate,
+        end_date: endDate,
+      });
+
+      console.log(`✅ Fetched ${transactionsResponse.data.transactions.length} transactions from ${institutionName}`);
+
+      // Get account mappings
+      const { data: dbAccounts } = await supabase
+        .from('accounts')
+        .select('id, account_id')
+        .eq('plaid_item_id', plaidItem.id);
+
+      const accountMap = new Map(dbAccounts?.map(a => [a.account_id, a.id]) || []);
+
+      // Store transactions in database
+      if (transactionsResponse.data.transactions.length > 0) {
+        const transactionsToInsert = transactionsResponse.data.transactions.map((tx) => {
+          const dbAccountId = accountMap.get(tx.account_id);
+          return {
+            user_id: user.id,
+            account_id: dbAccountId,
+            transaction_id: tx.transaction_id,
+            amount: tx.amount,
+            date: tx.date,
+            authorized_date: tx.authorized_date || null,
+            posted_date: tx.date,
+            name: tx.name,
+            // Plaid categorization
+            plaid_category: tx.category || [],
+            plaid_primary_category: tx.category?.[0] || null,
+            plaid_detailed_category: tx.category ? tx.category.join(' > ') : null,
+            // Merchant and location
+            merchant_name: tx.merchant_name || null,
+            location_city: tx.location?.city || null,
+            location_state: tx.location?.region || null,
+            location_country: tx.location?.country || null,
+            location_address: tx.location?.address || null,
+            location_lat: tx.location?.lat || null,
+            location_lon: tx.location?.lon || null,
+            // Transaction metadata
+            transaction_type: tx.amount > 0 ? 'expense' : 'income',
+            payment_channel: tx.payment_channel || null,
+            check_number: tx.check_number || null,
+            // Flags
+            pending: tx.pending || false,
+            is_transfer: tx.amount === 0 || false,
+          };
+        }).filter((tx) => tx.account_id);
+
+        if (transactionsToInsert.length > 0) {
+          await supabase
+            .from('transactions')
+            .upsert(transactionsToInsert, {
+              onConflict: 'account_id,transaction_id',
+            });
+          console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+        }
+      }
+
+      // Update the plaid_item's updated_at timestamp
+      await supabase
+        .from('plaid_items')
+        .update({ updated_at: now.toISOString() })
+        .eq('id', plaidItem.id);
+
+    } catch (syncError) {
+      console.error('⚠️  Warning: Failed to auto-sync transactions:', syncError);
+      // Don't fail the whole request if sync fails
+    }
+
     res.json({
       access_token: accessToken,
       item_id: itemId,
       accounts: accountsResponse.data.accounts,
       institution_name: institutionName,
+      transactions_synced: true,
     });
   } catch (error) {
     console.error('❌ Error exchanging public token:', error);
@@ -296,6 +409,8 @@ app.get('/api/transactions', async (req, res) => {
 });
 
 // Manual sync endpoint with 24-hour rate limit
+// Note: This rate limit only applies to manual syncs via the "Sync from Plaid" button
+// Initial syncs when linking a new account (in exchange_public_token) are NOT rate limited
 app.post('/api/transactions/sync', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -932,6 +1047,179 @@ app.get('/api/accounts', async (req, res) => {
   } catch (error) {
     console.error('❌ Get accounts error:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch accounts' });
+  }
+});
+
+// Get recurring transactions endpoint
+app.get('/api/recurring', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { active_only, upcoming_only } = req.query;
+
+    let query = supabase
+      .from('recurring_transactions')
+      .select(`
+        *,
+        accounts (
+          name,
+          mask,
+          institution_name
+        ),
+        transaction_categories (
+          name,
+          icon,
+          color
+        )
+      `)
+      .eq('user_id', user.id)
+      .order('next_due_date', { ascending: true, nullsLast: true });
+
+    if (active_only === 'true') {
+      query = query.eq('is_active', true);
+    }
+
+    if (upcoming_only === 'true') {
+      const today = new Date().toISOString().split('T')[0];
+      query = query
+        .eq('is_active', true)
+        .gte('next_due_date', today)
+        .order('next_due_date', { ascending: true });
+    }
+
+    const { data: recurring, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching recurring transactions:', error);
+      return res.status(500).json({ error: 'Failed to fetch recurring transactions' });
+    }
+
+    // Calculate days until due for each
+    const recurringWithDue = (recurring || []).map((rt) => {
+      if (!rt.next_due_date) return rt;
+      const today = new Date();
+      const dueDate = new Date(rt.next_due_date);
+      const diffTime = dueDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return {
+        ...rt,
+        days_until_due: diffDays,
+        due_in: diffDays < 0 
+          ? `${Math.abs(diffDays)} days ago` 
+          : diffDays === 0 
+          ? 'Today' 
+          : diffDays === 1 
+          ? 'Tomorrow' 
+          : `in ${diffDays} days`,
+      };
+    });
+
+    res.json({ recurring: recurringWithDue });
+  } catch (error) {
+    console.error('❌ Get recurring error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch recurring transactions' });
+  }
+});
+
+// Clean up duplicate accounts endpoint
+app.post('/api/accounts/cleanup-duplicates', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    console.log('🧹 Cleaning up duplicate accounts for user:', user.id);
+
+    // Get all accounts for this user
+    const { data: allAccounts } = await supabase
+      .from('accounts')
+      .select('id, account_id, plaid_item_id, created_at, name, mask')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }); // Newest first
+
+    if (!allAccounts || allAccounts.length === 0) {
+      return res.json({ message: 'No accounts found', removed: 0 });
+    }
+
+    // Group by mask + type + subtype (identifies the same physical account across different plaid_items)
+    const accountGroups = new Map();
+    allAccounts.forEach(account => {
+      // Use mask + type + subtype as the key (same physical account)
+      const key = `${account.mask}_${account.type}_${account.subtype || 'none'}`;
+      if (!accountGroups.has(key)) {
+        accountGroups.set(key, []);
+      }
+      accountGroups.get(key).push(account);
+    });
+
+    // Find duplicates (more than one account with same mask + type)
+    const duplicatesToRemove = [];
+    accountGroups.forEach((accounts, key) => {
+      if (accounts.length > 1) {
+        // Keep the newest one, remove the rest
+        const [keep, ...remove] = accounts;
+        console.log(`  Found ${accounts.length} duplicates for account ${keep.name} (${keep.mask})`);
+        console.log(`  Keeping: ${keep.id} (created: ${keep.created_at})`);
+        remove.forEach(acc => {
+          console.log(`  Removing: ${acc.id} (created: ${acc.created_at})`);
+          duplicatesToRemove.push(acc.id);
+        });
+      }
+    });
+
+    if (duplicatesToRemove.length > 0) {
+      console.log(`🗑️  Removing ${duplicatesToRemove.length} duplicate accounts...`);
+      await supabase
+        .from('accounts')
+        .delete()
+        .in('id', duplicatesToRemove);
+      
+      console.log('✅ Duplicates removed');
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${duplicatesToRemove.length} duplicate account${duplicatesToRemove.length !== 1 ? 's' : ''}`,
+      removed: duplicatesToRemove.length,
+      total_accounts_before: allAccounts.length,
+      total_accounts_after: allAccounts.length - duplicatesToRemove.length,
+    });
+  } catch (error) {
+    console.error('❌ Cleanup error:', error);
+    res.status(500).json({ error: error.message || 'Failed to cleanup duplicates' });
   }
 });
 

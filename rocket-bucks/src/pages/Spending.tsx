@@ -1,55 +1,254 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { api } from '../utils/api';
 
 const Spending = () => {
   const [activeTab, setActiveTab] = useState<'lastMonth' | 'thisMonth' | 'custom'>('thisMonth');
-  
-  const monthlySpending = [
-    { month: 'May', amount: 0 },
-    { month: 'Jun', amount: 2000 },
-    { month: 'Jul', amount: 1500 },
-    { month: 'Aug', amount: 3500 },
-    { month: 'Sep', amount: 2000 },
-    { month: 'Oct', amount: 8761 },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [monthlySpending, setMonthlySpending] = useState<any[]>([]);
+  const [categoryData, setCategoryData] = useState<any[]>([]);
+  const [frequentMerchants, setFrequentMerchants] = useState<any[]>([]);
+  const [largestPurchases, setLargestPurchases] = useState<any[]>([]);
+  const [summaryData, setSummaryData] = useState({
+    income: 0,
+    bills: 0,
+    spending: 0,
+    incomeCount: 0,
+    billsChange: 0,
+    spendingChange: 0,
+  });
 
-  const lastMonthSpending = [
-    { month: 'Apr', amount: 1500 },
-    { month: 'May', amount: 0 },
-    { month: 'Jun', amount: 2000 },
-    { month: 'Jul', amount: 1500 },
-    { month: 'Aug', amount: 3500 },
-    { month: 'Sep', amount: 2000 },
-  ];
+  useEffect(() => {
+    loadSpendingData();
+  }, [activeTab]);
 
-  const categoryData = [
-    { name: 'Education', spend: 3399, percent: 48, color: '#f97316' },
-    { name: 'Dining & Drinks', spend: 1640, percent: 17, color: '#3b82f6' },
-    { name: 'Bills & Utilities', spend: 1070, percent: 12, color: '#06b6d4' },
-    { name: 'Health & Wellness', spend: 734, percent: 8, color: '#8b5cf6' },
-    { name: 'Shopping', spend: 644, percent: 8, color: '#ef4444' },
-    { name: 'Auto & Transport', spend: 471, percent: 5, color: '#10b981' },
-    { name: 'Software & Tech', spend: 251, percent: 3, color: '#f59e0b' },
-    { name: 'Uncategorized', spend: 83, percent: 1, color: '#6b7280' },
-  ];
+  const loadSpendingData = async () => {
+    try {
+      setLoading(true);
+      
+      // Determine date range based on active tab
+      const now = new Date();
+      let startDate: Date;
+      let endDate: Date;
 
-  const lastMonthCategoryData = [
-    { name: 'Education', spend: 2500, percent: 45, color: '#f97316' },
-    { name: 'Travel & Vacation', spend: 1200, percent: 22, color: '#3b82f6' },
-    { name: 'Shopping', spend: 800, percent: 15, color: '#ef4444' },
-    { name: 'Dining & Drinks', spend: 600, percent: 11, color: '#06b6d4' },
-    { name: 'Bills & Utilities', spend: 400, percent: 7, color: '#8b5cf6' },
-  ];
+      if (activeTab === 'lastMonth') {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+      } else {
+        // This month
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = now;
+      }
 
-  const frequentMerchants = [
-    { name: 'Lyft', average: 325.38, amount: 325.82 },
-    { name: 'Pan Iron Qiaji', average: 79.51, amount: 99.42 },
-    { name: 'Uber Eats', average: 118.66, amount: 137.64 },
-  ];
+      // Fetch transactions for the selected period
+      const { transactions: txData } = await api.searchTransactions({
+        start_date: startDate.toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0],
+        limit: 10000,
+      });
 
-  const currentCategoryData = activeTab === 'lastMonth' ? lastMonthCategoryData : categoryData;
-  const currentSpendingData = activeTab === 'lastMonth' ? lastMonthSpending : monthlySpending;
-  const totalSpend = currentCategoryData.reduce((sum, cat) => sum + cat.spend, 0);
+      setTransactions(txData || []);
+
+      // Calculate all metrics
+      calculateMonthlyTrends(txData || []);
+      calculateCategoryBreakdown(txData || []);
+      calculateTopMerchants(txData || []);
+      calculateLargestPurchases(txData || []);
+      calculateSummary(txData || [], startDate, endDate);
+
+    } catch (error) {
+      console.error('Error loading spending data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateMonthlyTrends = async (currentTxData: any[]) => {
+    try {
+      // Fetch last 6 months of data
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      
+      const { transactions: allTx } = await api.searchTransactions({
+        start_date: sixMonthsAgo.toISOString().split('T')[0],
+        end_date: new Date().toISOString().split('T')[0],
+        limit: 10000,
+      });
+
+      // Group by month
+      const monthlyData: { [key: string]: number } = {};
+      allTx.forEach((tx: any) => {
+        if (tx.transaction_type === 'expense' && tx.amount > 0) {
+          const date = new Date(tx.date);
+          const monthKey = date.toLocaleDateString('en-US', { month: 'short' });
+          monthlyData[monthKey] = (monthlyData[monthKey] || 0) + tx.amount;
+        }
+      });
+
+      // Convert to chart data (last 6 months)
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const now = new Date();
+      const chartData = [];
+      
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthName = months[date.getMonth()];
+        chartData.push({
+          month: monthName,
+          amount: monthlyData[monthName] || 0,
+        });
+      }
+
+      setMonthlySpending(chartData);
+    } catch (error) {
+      console.error('Error calculating monthly trends:', error);
+    }
+  };
+
+  const calculateCategoryBreakdown = (txData: any[]) => {
+    const categoryTotals: { [key: string]: { amount: number; count: number } } = {};
+    
+    // Group by category
+    txData.forEach((tx: any) => {
+      if (tx.transaction_type === 'expense' && tx.amount > 0) {
+        const category = tx.user_category_name || tx.plaid_primary_category || 'Uncategorized';
+        if (!categoryTotals[category]) {
+          categoryTotals[category] = { amount: 0, count: 0 };
+        }
+        categoryTotals[category].amount += tx.amount;
+        categoryTotals[category].count += 1;
+      }
+    });
+
+    // Convert to array and calculate percentages
+    const totalSpending = Object.values(categoryTotals).reduce((sum, cat) => sum + cat.amount, 0);
+    
+    const colors = ['#f97316', '#3b82f6', '#06b6d4', '#8b5cf6', '#ef4444', '#10b981', '#f59e0b', '#6b7280'];
+    const categoryArray = Object.entries(categoryTotals)
+      .map(([name, data], index) => ({
+        name,
+        spend: data.amount,
+        count: data.count,
+        percent: totalSpending > 0 ? Math.round((data.amount / totalSpending) * 100) : 0,
+        color: colors[index % colors.length],
+      }))
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 8); // Top 8 categories
+
+    setCategoryData(categoryArray);
+  };
+
+  const calculateTopMerchants = (txData: any[]) => {
+    const merchantTotals: { [key: string]: { amount: number; count: number; amounts: number[] } } = {};
+    
+    txData.forEach((tx: any) => {
+      if (tx.transaction_type === 'expense' && tx.amount > 0) {
+        const merchant = tx.merchant_name || tx.name;
+        if (!merchantTotals[merchant]) {
+          merchantTotals[merchant] = { amount: 0, count: 0, amounts: [] };
+        }
+        merchantTotals[merchant].amount += tx.amount;
+        merchantTotals[merchant].count += 1;
+        merchantTotals[merchant].amounts.push(tx.amount);
+      }
+    });
+
+    // Get top 3 merchants
+    const topMerchants = Object.entries(merchantTotals)
+      .map(([name, data]) => ({
+        name,
+        amount: data.amount,
+        average: data.amount / data.count,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
+
+    setFrequentMerchants(topMerchants);
+  };
+
+  const calculateLargestPurchases = (txData: any[]) => {
+    const largest = txData
+      .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3)
+      .map((tx: any) => ({
+        name: tx.merchant_name || tx.name,
+        date: new Date(tx.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+        amount: tx.amount,
+      }));
+
+    setLargestPurchases(largest);
+  };
+
+  const calculateSummary = async (txData: any[], startDate: Date, endDate: Date) => {
+    // Current period
+    const income = txData
+      .filter((tx: any) => tx.transaction_type === 'income')
+      .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+    
+    const bills = txData
+      .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    
+    const spending = txData
+      .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    const incomeCount = txData.filter((tx: any) => tx.transaction_type === 'income').length;
+
+    // Previous period for comparison
+    const periodLength = endDate.getTime() - startDate.getTime();
+    const prevEndDate = new Date(startDate.getTime() - 1);
+    const prevStartDate = new Date(prevEndDate.getTime() - periodLength);
+
+    try {
+      const { transactions: prevTx } = await api.searchTransactions({
+        start_date: prevStartDate.toISOString().split('T')[0],
+        end_date: prevEndDate.toISOString().split('T')[0],
+        limit: 10000,
+      });
+
+      const prevBills = prevTx
+        .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
+        .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+      
+      const prevSpending = prevTx
+        .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+        .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+
+      setSummaryData({
+        income,
+        bills,
+        spending,
+        incomeCount,
+        billsChange: bills - prevBills,
+        spendingChange: spending - prevSpending,
+      });
+    } catch (error) {
+      console.error('Error calculating summary:', error);
+      setSummaryData({
+        income,
+        bills,
+        spending,
+        incomeCount,
+        billsChange: 0,
+        spendingChange: 0,
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto">
+        <div className="flex items-center justify-center h-64">
+          <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    );
+  }
+
+  const totalSpend = categoryData.reduce((sum, cat) => sum + cat.spend, 0);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -118,80 +317,81 @@ const Spending = () => {
           ) : (
             <>
           {/* Spending Chart */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Monthly Spending</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={currentSpendingData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Tooltip />
-                <Bar dataKey="amount" fill="#3b82f6" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {monthlySpending.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Monthly Spending</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={monthlySpending}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" stroke="#888" />
+                  <YAxis stroke="#888" />
+                  <Tooltip />
+                  <Bar dataKey="amount" fill="#3b82f6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Spending Breakdown */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-gray-900">Spending Breakdown</h3>
-              <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" className="rounded" defaultChecked />
-                Include Bills
-              </label>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-              {/* Pie Chart */}
-              <div className="flex justify-center">
-                <div className="relative">
-                  <ResponsiveContainer width={300} height={300}>
-                    <PieChart>
-                      <Pie
-                        data={currentCategoryData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={80}
-                        outerRadius={120}
-                        paddingAngle={2}
-                        dataKey="spend"
-                      >
-                        {currentCategoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                    <div className="text-3xl font-bold text-gray-900">${totalSpend.toLocaleString()}.49</div>
-                    <div className="text-sm text-green-600">↑ 79% from last</div>
+            {categoryData.length === 0 ? (
+              <p className="text-center py-12 text-gray-500">No spending data available for this period</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                {/* Pie Chart */}
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <ResponsiveContainer width={300} height={300}>
+                      <PieChart>
+                        <Pie
+                          data={categoryData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={80}
+                          outerRadius={120}
+                          paddingAngle={2}
+                          dataKey="spend"
+                        >
+                          {categoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                      <div className="text-3xl font-bold text-gray-900">${totalSpend.toLocaleString()}</div>
+                      <div className="text-sm text-gray-600">Total Spend</div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Category List */}
-              <div className="space-y-3">
-                {currentCategoryData.map((category, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: category.color }}>
-                        <span className="text-white text-xs">📊</span>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-gray-900">{category.name}</p>
-                          <p className="text-xs text-gray-600 ml-2">{category.percent}% of spend</p>
+                {/* Category List */}
+                <div className="space-y-3">
+                  {categoryData.map((category, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: category.color }}>
+                          <span className="text-white text-xs">📊</span>
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-gray-900">{category.name}</p>
+                            <p className="text-xs text-gray-600 ml-2">{category.percent}% of spend</p>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2 ml-4">
+                        <p className="text-sm font-medium text-gray-900">${category.spend.toLocaleString()}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      <p className="text-sm font-medium text-gray-900">${category.spend.toLocaleString()}</p>
-                      <span className="text-green-600 text-xs">↑ {category.percent}%</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
             </>
           )}
@@ -201,85 +401,85 @@ const Spending = () => {
         <div className="space-y-6">
           {/* Summary Card */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Oct 1 - Oct 28</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-2">
+              {activeTab === 'lastMonth' ? 'Last Month' : activeTab === 'thisMonth' ? 'This Month' : 'Custom Period'}
+            </h3>
             <div className="space-y-4">
               <div>
                 <p className="text-xs text-gray-600 mb-1">Income</p>
-                <p className="text-xl font-bold text-gray-900">$0</p>
-                <p className="text-xs text-gray-600">0 income events</p>
+                <p className="text-xl font-bold text-gray-900">${summaryData.income.toLocaleString()}</p>
+                <p className="text-xs text-gray-600">{summaryData.incomeCount} income event{summaryData.incomeCount !== 1 ? 's' : ''}</p>
               </div>
               <div className="border-t border-gray-200 pt-4">
                 <p className="text-xs text-gray-600 mb-1">Bills</p>
-                <p className="text-xl font-bold text-gray-900">$1,070.93</p>
-                <p className="text-xs text-gray-600">$607 more than Sept</p>
+                <p className="text-xl font-bold text-gray-900">${summaryData.bills.toLocaleString()}</p>
+                <p className="text-xs text-gray-600">
+                  {summaryData.billsChange > 0 ? '+' : ''}${Math.abs(summaryData.billsChange).toLocaleString()} {summaryData.billsChange > 0 ? 'more' : 'less'} than last period
+                </p>
               </div>
               <div className="border-t border-gray-200 pt-4">
                 <p className="text-xs text-gray-600 mb-1">Spending</p>
-                <p className="text-xl font-bold text-gray-900">$7,690.56</p>
-                <p className="text-xs text-gray-600">$179 less than Sept</p>
+                <p className="text-xl font-bold text-gray-900">${summaryData.spending.toLocaleString()}</p>
+                <p className="text-xs text-gray-600">
+                  {summaryData.spendingChange > 0 ? '+' : ''}${Math.abs(summaryData.spendingChange).toLocaleString()} {summaryData.spendingChange > 0 ? 'more' : 'less'} than last period
+                </p>
               </div>
             </div>
           </div>
 
           {/* Frequent Spend */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Frequent Spend</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Your top 3 expenses accounted for 55% of your spend this month, vs. 0 times last month.
-            </p>
-            <div className="space-y-4">
-              {frequentMerchants.map((merchant, index) => (
-                <div key={index}>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                      {merchant.name.substring(0, 2)}
+          {frequentMerchants.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Frequent Spend</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Your top {frequentMerchants.length} merchant{frequentMerchants.length !== 1 ? 's' : ''} this period.
+              </p>
+              <div className="space-y-4">
+                {frequentMerchants.map((merchant, index) => (
+                  <div key={index}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                        {merchant.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{merchant.name}</p>
+                        <p className="text-xs text-gray-600">Average ${merchant.average.toFixed(2)}</p>
+                      </div>
+                      <p className="text-sm font-medium text-gray-900">${merchant.amount.toFixed(2)}</p>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{merchant.name}</p>
-                      <p className="text-xs text-gray-600">Average ${merchant.average}</p>
-                    </div>
-                    <p className="text-sm font-medium text-gray-900">${merchant.amount}</p>
+                    {index < frequentMerchants.length - 1 && <div className="border-t border-gray-100 mt-4" />}
                   </div>
-                  {index < frequentMerchants.length - 1 && <div className="border-t border-gray-100 mt-4" />}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <button className="mt-4 w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
-              See more
-            </button>
-          </div>
+          )}
 
           {/* Largest Purchases */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Largest Purchases</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Your top 3 expenses accounted for 55% of your spend this month.
-            </p>
-            <div className="space-y-3">
-              {[
-                { name: 'UVA Student Financial Ser', date: 'October 2', amount: 2388.00 },
-                { name: 'Oura Ring', date: 'October 5', amount: 396.41 },
-                { name: '13\" Mba GOODGOO4', date: 'October 8', amount: 266.84 },
-              ].map((purchase, index) => (
-                <div key={index}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                      {purchase.name.substring(0, 2)}
+          {largestPurchases.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Largest Purchases</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Your top {largestPurchases.length} expense{largestPurchases.length !== 1 ? 's' : ''} this period.
+              </p>
+              <div className="space-y-3">
+                {largestPurchases.map((purchase, index) => (
+                  <div key={index}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                        {purchase.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{purchase.name}</p>
+                        <p className="text-xs text-gray-600">{purchase.date}</p>
+                      </div>
+                      <p className="text-sm font-medium text-gray-900">${purchase.amount.toLocaleString()}</p>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{purchase.name}</p>
-                      <p className="text-xs text-gray-600">{purchase.date}</p>
-                    </div>
-                    <p className="text-sm font-medium text-gray-900">${purchase.amount.toLocaleString()}</p>
+                    {index < largestPurchases.length - 1 && <div className="border-t border-gray-100 mt-3 pt-3" />}
                   </div>
-                  {index < 2 && <div className="border-t border-gray-100 mt-3 pt-3" />}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <button className="mt-4 w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
-              See more
-            </button>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -287,4 +487,3 @@ const Spending = () => {
 };
 
 export default Spending;
-

@@ -341,5 +341,26 @@ export const api = {
 
     return response.json();
   },
+
+  /**
+   * Clean up duplicate accounts
+   */
+  cleanupDuplicateAccounts: async (): Promise<{ 
+    success: boolean; 
+    message: string; 
+    removed: number 
+  }> => {
+    const response = await fetch(`${getApiUrl()}/accounts/cleanup-duplicates`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to cleanup duplicates');
+    }
+
+    return response.json();
+  },
 };
 

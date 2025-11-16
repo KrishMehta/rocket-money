@@ -1,67 +1,203 @@
+import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
+import { api } from '../utils/api';
 
 const Dashboard = () => {
-  const spendingData = [
-    { month: 'May', amount: 42000 },
-    { month: 'Jun', amount: 31300 },
-    { month: 'Jul', amount: 20600 },
-    { month: 'Aug', amount: 9860 },
-    { month: 'Sep', amount: 8761 },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [upcomingCharges, setUpcomingCharges] = useState<any[]>([]);
+  const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [monthlySpend, setMonthlySpend] = useState(0);
+  const [totalTransactions, setTotalTransactions] = useState(0);
 
-  const recentTransactions = [
-    { date: '10/26', name: 'Lyft', status: 'Pending', amount: 11.93 },
-    { date: '10/26', name: 'City Of Charlottesvil', status: 'Pending', amount: 1.50 },
-    { date: '10/26', name: 'AT&T', status: '', amount: 164.44 },
-    { date: '10/23', name: 'Zelle Payment To Yellow Cab', status: '', amount: 5.00 },
-    { date: '10/22', name: 'Sqsp* Worksp#206132292', status: '', amount: 8.40 },
-    { date: '10/22', name: 'Uber Eats', status: 'Pending', amount: 20.00 },
-    { date: '10/22', name: 'Uber One', status: 'Pending', amount: 9.99 },
-    { date: '10/22', name: 'Zelle Payment To Yellow Cab', status: '', amount: 5.00 },
-    { date: '10/21', name: 'Payment Thank You-mobile', status: '', amount: -340.88 },
-    { date: '10/21', name: 'Uber Eats', status: '', amount: 12.79 },
-  ];
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
 
-  const accounts = [
-    { name: 'Checking', amount: 545, icon: '🏦' },
-    { name: 'Credit Cards', amount: 610, icon: '💳', isDebt: true },
-    { name: 'Net Cash', amount: -64, icon: '💵', isNegative: true },
-    { name: 'Savings', amount: 20000, icon: '💰' },
-    { name: 'Investments', amount: null, icon: '📈', isAdd: true },
-  ];
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch all data in parallel
+      const [accountsRes, transactionsRes, recurringRes] = await Promise.all([
+        api.getAccounts(),
+        api.searchTransactions({ limit: 10 }),
+        api.getRecurring({ active_only: true, upcoming_only: true }),
+      ]);
 
-  const upcomingCharges = [
-    { name: 'Paramount+', days: 4, amount: 12.99 },
-    { name: 'OpenAI', days: 10, amount: 20.00 },
-  ];
+      // Set accounts
+      setAccounts(accountsRes.accounts || []);
+
+      // Set recent transactions
+      setRecentTransactions(transactionsRes.transactions || []);
+      setTotalTransactions(transactionsRes.count || 0);
+
+      // Set upcoming charges (next 30 days)
+      const next30Days = recurringRes.recurring?.filter((r: any) => 
+        r.days_until_due >= 0 && r.days_until_due <= 30
+      ) || [];
+      setUpcomingCharges(next30Days);
+
+      // Calculate monthly spending trends (last 6 months)
+      calculateSpendingTrends(transactionsRes.transactions || []);
+
+      // Calculate current month spending
+      calculateMonthlySpend();
+
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateSpendingTrends = async (recentTx: any[]) => {
+    try {
+      // Fetch last 6 months of transactions
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      
+      const { transactions } = await api.searchTransactions({
+        start_date: sixMonthsAgo.toISOString().split('T')[0],
+        end_date: new Date().toISOString().split('T')[0],
+        limit: 10000,
+      });
+
+      // Group by month
+      const monthlyData: { [key: string]: number } = {};
+      transactions.forEach((tx: any) => {
+        if (tx.transaction_type === 'expense' && tx.amount > 0) {
+          const date = new Date(tx.date);
+          const monthKey = date.toLocaleDateString('en-US', { month: 'short' });
+          monthlyData[monthKey] = (monthlyData[monthKey] || 0) + tx.amount;
+        }
+      });
+
+      // Convert to chart data (last 5 months)
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const now = new Date();
+      const chartData = [];
+      
+      for (let i = 4; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthName = months[date.getMonth()];
+        chartData.push({
+          month: monthName,
+          amount: monthlyData[monthName] || 0,
+        });
+      }
+
+      setSpendingData(chartData);
+    } catch (error) {
+      console.error('Error calculating spending trends:', error);
+    }
+  };
+
+  const calculateMonthlySpend = async () => {
+    try {
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      const { transactions } = await api.searchTransactions({
+        start_date: firstDayOfMonth.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0],
+        transaction_type: 'expense',
+        limit: 10000,
+      });
+
+      const total = transactions.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0);
+      setMonthlySpend(total);
+    } catch (error) {
+      console.error('Error calculating monthly spend:', error);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  };
+
+  const getAccountIcon = (account: any) => {
+    if (account.type === 'depository') {
+      if (account.subtype === 'checking') return '🏦';
+      if (account.subtype === 'savings') return '💰';
+      return '🏦';
+    }
+    if (account.type === 'credit') return '💳';
+    if (account.type === 'investment') return '📈';
+    return '💵';
+  };
+
+  const groupAccountsByType = () => {
+    const checking = accounts
+      .filter(a => a.type === 'depository' && a.subtype === 'checking')
+      .reduce((sum, a) => sum + (a.balance_current || 0), 0);
+    
+    const savings = accounts
+      .filter(a => a.type === 'depository' && a.subtype === 'savings')
+      .reduce((sum, a) => sum + (a.balance_current || 0), 0);
+    
+    const creditCards = accounts
+      .filter(a => a.type === 'credit')
+      .reduce((sum, a) => sum + Math.abs(a.balance_current || 0), 0);
+    
+    const investments = accounts
+      .filter(a => a.type === 'investment')
+      .reduce((sum, a) => sum + (a.balance_current || 0), 0);
+
+    const netCash = checking - creditCards;
+
+    return [
+      checking > 0 && { name: 'Checking', amount: checking, icon: '🏦' },
+      creditCards > 0 && { name: 'Credit Cards', amount: creditCards, icon: '💳', isDebt: true },
+      { name: 'Net Cash', amount: netCash, icon: '💵', isNegative: netCash < 0 },
+      savings > 0 && { name: 'Savings', amount: savings, icon: '💰' },
+      investments > 0 && { name: 'Investments', amount: investments, icon: '📈' },
+    ].filter(Boolean);
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto">
+        <div className="flex items-center justify-center h-64">
+          <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    );
+  }
+
+  const groupedAccounts = groupAccountsByType();
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Good evening, Krish</h1>
 
-      {/* Connect Accounts Banner */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-8 text-white shadow-lg">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-3xl">🏦</span>
+      {/* Connect Accounts Banner - Show only if no accounts */}
+      {accounts.length === 0 && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-8 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-3xl">🏦</span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold mb-1">Connect Your Bank Accounts</h3>
+                <p className="text-blue-100 text-sm">
+                  Securely link your accounts with Plaid to automatically track transactions and get personalized insights
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xl font-bold mb-1">Connect Your Bank Accounts</h3>
-              <p className="text-blue-100 text-sm">
-                Securely link your accounts with Plaid to automatically track transactions and get personalized insights
-              </p>
-            </div>
+            <Link
+              to="/connect-accounts"
+              className="px-6 py-3 bg-white text-blue-600 rounded-xl font-medium hover:bg-blue-50 transition-colors shadow-lg whitespace-nowrap ml-4"
+            >
+              Connect Now
+            </Link>
           </div>
-          <Link
-            to="/connect-accounts"
-            className="px-6 py-3 bg-white text-blue-600 rounded-xl font-medium hover:bg-blue-50 transition-colors shadow-lg whitespace-nowrap ml-4"
-          >
-            Connect Now
-          </Link>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}
@@ -69,30 +205,51 @@ const Dashboard = () => {
           {/* Current spend card */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <p className="text-sm text-gray-600 mb-2">Current spend this month</p>
-            <h2 className="text-4xl font-bold text-gray-900 mb-4">$8,761</h2>
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">
+              ${monthlySpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h2>
             
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-green-600">✓</span>
-              <p className="text-sm text-gray-600">
-                You've spent <span className="font-semibold">$33,033 less</span> than last month
-              </p>
-            </div>
+            {spendingData.length >= 2 && (
+              <div className="flex items-center gap-2 mb-4">
+                {spendingData[spendingData.length - 1]?.amount < spendingData[spendingData.length - 2]?.amount ? (
+                  <>
+                    <span className="text-green-600">✓</span>
+                    <p className="text-sm text-gray-600">
+                      You've spent <span className="font-semibold">
+                        ${(spendingData[spendingData.length - 2].amount - spendingData[spendingData.length - 1].amount).toLocaleString()}
+                      </span> less than last month
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-red-600">↑</span>
+                    <p className="text-sm text-gray-600">
+                      You've spent <span className="font-semibold">
+                        ${(spendingData[spendingData.length - 1].amount - spendingData[spendingData.length - 2].amount).toLocaleString()}
+                      </span> more than last month
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={spendingData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#888" />
-                <YAxis stroke="#888" />
-                <Tooltip />
-                <Line 
-                  type="monotone" 
-                  dataKey="amount" 
-                  stroke="#ef4444" 
-                  strokeWidth={2}
-                  dot={{ fill: '#ef4444' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {spendingData.length > 0 && (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={spendingData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" stroke="#888" />
+                  <YAxis stroke="#888" />
+                  <Tooltip />
+                  <Line 
+                    type="monotone" 
+                    dataKey="amount" 
+                    stroke="#ef4444" 
+                    strokeWidth={2}
+                    dot={{ fill: '#ef4444' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Recent Transactions */}
@@ -100,7 +257,9 @@ const Dashboard = () => {
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Recent Transactions</h3>
-                <p className="text-sm text-gray-600">You've had 110 transactions so far this month</p>
+                <p className="text-sm text-gray-600">
+                  You've had {totalTransactions} transaction{totalTransactions !== 1 ? 's' : ''} so far this month
+                </p>
               </div>
             </div>
 
@@ -114,31 +273,44 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTransactions.map((transaction, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm text-gray-900">{transaction.date}</td>
-                      <td className="py-3 px-4 text-sm text-gray-900">
-                        {transaction.name}
-                        {transaction.status && (
-                          <span className="ml-2 text-gray-500">| {transaction.status}</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-right font-medium">
-                        {transaction.amount > 0 ? (
-                          <span className="text-gray-900">${transaction.amount.toFixed(2)}</span>
-                        ) : (
-                          <span className="text-green-600">+${Math.abs(transaction.amount).toFixed(2)}</span>
-                        )}
+                  {recentTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-gray-500">
+                        <p className="mb-2">No transactions found.</p>
+                        <Link to="/connect-accounts" className="text-blue-600 hover:underline">
+                          Connect an account to get started
+                        </Link>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    recentTransactions.map((transaction, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm text-gray-900">{formatDate(transaction.date)}</td>
+                        <td className="py-3 px-4 text-sm text-gray-900">
+                          {transaction.name}
+                          {transaction.pending && (
+                            <span className="ml-2 text-gray-500">| Pending</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-right font-medium">
+                          {transaction.transaction_type === 'income' ? (
+                            <span className="text-green-600">+${Math.abs(transaction.amount).toFixed(2)}</span>
+                          ) : (
+                            <span className="text-gray-900">${Math.abs(transaction.amount).toFixed(2)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
-            <button className="mt-4 w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
-              See more transactions
-            </button>
+            <Link to="/transactions">
+              <button className="mt-4 w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
+                See more transactions
+              </button>
+            </Link>
           </div>
         </div>
 
@@ -148,75 +320,87 @@ const Dashboard = () => {
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">Accounts</h3>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <span>🕐 22 hours ago</span>
-                <span>|</span>
-                <button className="text-blue-600 hover:underline">Sync now</button>
-              </div>
+              <Link to="/connect-accounts" className="text-sm text-blue-600 hover:underline">
+                Manage
+              </Link>
             </div>
 
-            <div className="space-y-3">
-              {accounts.map((account, index) => (
-                <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{account.icon}</span>
-                    <span className="text-sm font-medium text-gray-900">{account.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {account.isAdd ? (
-                      <span className="text-sm text-blue-600 font-medium">Add</span>
-                    ) : (
+            {groupedAccounts.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-600 mb-3">No accounts connected yet</p>
+                <Link 
+                  to="/connect-accounts"
+                  className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                >
+                  Connect Account
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {groupedAccounts.map((account: any, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{account.icon}</span>
+                      <span className="text-sm font-medium text-gray-900">{account.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <span className={`text-sm font-medium ${
                         account.isNegative ? 'text-red-600' : account.isDebt ? 'text-red-600' : 'text-gray-900'
                       }`}>
-                        {account.amount !== null && `$${account.amount.toLocaleString()}`}
+                        ${Math.abs(account.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
-                    )}
-                    <span className="text-gray-400">›</span>
+                      <span className="text-gray-400">›</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Coming Up */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Coming Up</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              You have 2 recurring charges due within the next 11 days for $32.99.
-            </p>
+            {upcomingCharges.length > 0 ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  You have {upcomingCharges.length} recurring charge{upcomingCharges.length !== 1 ? 's' : ''} due within the next 30 days for ${upcomingCharges.reduce((sum, c) => sum + (c.expected_amount || 0), 0).toFixed(2)}.
+                </p>
 
-            {/* Mini calendar */}
-            <div className="grid grid-cols-7 gap-1 mb-4 text-center text-xs">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day} className="text-gray-600 font-medium py-1">{day}</div>
-              ))}
-              {[26, 27, 28, 29, 30, 31, 1].map((date) => (
-                <div key={date} className={`py-2 rounded ${date === 28 ? 'bg-blue-600 text-white font-bold' : 'text-gray-900'}`}>
-                  {date}
+                <div className="space-y-3">
+                  {upcomingCharges.slice(0, 5).map((charge, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                          {charge.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{charge.name}</p>
+                          <p className="text-xs text-gray-600">{charge.due_in}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-medium text-gray-900">
+                        ${(charge.expected_amount || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              {[2, 3, 4, 5, 6, 7, 8].map((date) => (
-                <div key={date} className="py-2 text-gray-900">{date}</div>
-              ))}
-            </div>
 
-            <div className="space-y-3">
-              {upcomingCharges.map((charge, index) => (
-                <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                      {charge.name.substring(0, 2)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{charge.name}</p>
-                      <p className="text-xs text-gray-600">in {charge.days} days</p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">${charge.amount}</span>
-                </div>
-              ))}
-            </div>
+                {upcomingCharges.length > 5 && (
+                  <Link to="/recurring">
+                    <button className="mt-4 w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
+                      See all recurring charges
+                    </button>
+                  </Link>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-600 mb-3">No upcoming charges</p>
+                <Link to="/recurring" className="text-sm text-blue-600 hover:underline">
+                  Manage recurring charges
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

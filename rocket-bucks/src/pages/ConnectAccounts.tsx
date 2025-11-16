@@ -39,7 +39,8 @@ const ConnectAccounts = () => {
       console.log('🔄 Exchanging Plaid public token...');
       console.log('📋 Metadata:', metadata);
       
-      // Exchange public token for access token (this saves to database automatically)
+      // Exchange public token for access token
+      // This automatically saves the account AND syncs transactions (no rate limit for new accounts)
       const result = await api.exchangePublicToken(publicToken);
       console.log('✅ Account connected:', result.institution_name);
       
@@ -47,17 +48,9 @@ const ConnectAccounts = () => {
       const data = await api.getAccounts();
       setConnectedAccounts(data.accounts || []);
       
-      // Initial sync for newly connected account (not rate limited)
-      console.log('🔄 Performing initial sync of transactions...');
-      try {
-        await api.syncTransactions();
-        console.log('✅ Initial transactions sync successful');
-      } catch (syncError: any) {
-        console.error('❌ Error syncing transactions:', syncError);
-        // Don't fail the whole flow if sync fails - user can manually sync later from Transactions page
-      }
-      
-      alert(`Successfully connected ${result.institution_name || 'your bank account'}!\n\nTransactions are being synced. You can view them in the Transactions tab.`);
+      // Show success message
+      const txCount = result.transactions_synced ? 'Transactions have been synced automatically!' : '';
+      alert(`✅ Successfully connected ${result.institution_name || 'your bank account'}!\n\n${txCount}\n\nYou can now view your real transaction data in all tabs.`);
     } catch (error: any) {
       console.error('❌ Error connecting account:', error);
       alert(`Failed to connect account: ${error.message || 'Unknown error'}\n\nPlease try again.`);

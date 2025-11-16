@@ -1,57 +1,100 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { api } from '../utils/api';
 
 const Recurring = () => {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'viewAll' | 'calendar'>('upcoming');
-  const monthlyData = [
-    { month: 'Apr', subscriptions: 500, bills: 300 },
-    { month: 'May', subscriptions: 480, bills: 320 },
-    { month: 'Jun', subscriptions: 520, bills: 340 },
-    { month: 'Jul', subscriptions: 510, bills: 310 },
-    { month: 'Aug', subscriptions: 530, bills: 330 },
-    { month: 'Sep', subscriptions: 550, bills: 350 },
-    { month: 'Oct', subscriptions: 1100, bills: 0 },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
+  const [monthlyData, setMonthlyData] = useState<any[]>([]);
 
-  const subscriptions = [
-    { name: 'Apple - App Store Subscriptions', frequency: 'Monthly', account: '••4221', due: 'in 13 days', amount: 2.99 },
-    { name: 'Credit Card Membership Fee', frequency: 'Irregular', account: '••1008', due: '', amount: 895.00 },
-    { name: 'CURSOR, AI POWERED IDE', frequency: 'Monthly', account: '••4221', due: 'in 18 days', amount: 20.00 },
-    { name: 'OpenAI', frequency: 'Monthly', account: '••4221', due: 'in 10 days', amount: 20.00 },
-    { name: 'Paramount+', frequency: 'Monthly', account: '••1008', due: 'in 4 days', amount: 12.99 },
-  ];
+  useEffect(() => {
+    loadRecurringData();
+  }, []);
 
-  const bills = [
-    { name: 'AT&T', frequency: 'Monthly', account: '••4221', due: 'in 29 days', amount: 164.44 },
-  ];
+  const loadRecurringData = async () => {
+    try {
+      setLoading(true);
+      const { recurring } = await api.getRecurring({ active_only: true });
+      setRecurringTransactions(recurring || []);
+      
+      // Calculate monthly breakdown
+      calculateMonthlyBreakdown(recurring || []);
+    } catch (error) {
+      console.error('Error loading recurring data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const creditCards = [
-    { name: 'American Express Card Payment', frequency: 'Monthly', account: '••0125', due: 'in 1 month', amount: 1755 },
-    { name: 'Chase Credit Card', frequency: 'Monthly', account: '••0125', due: 'in 1 month', amount: 340.88 },
-  ];
+  const calculateMonthlyBreakdown = (recurring: any[]) => {
+    // Create last 6 months of data
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const chartData = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthName = months[date.getMonth()];
+      
+      // Calculate subscriptions and bills for this month
+      const subscriptions = recurring
+        .filter(r => r.is_subscription)
+        .reduce((sum, r) => sum + (r.expected_amount || 0), 0);
+      
+      const bills = recurring
+        .filter(r => !r.is_subscription)
+        .reduce((sum, r) => sum + (r.expected_amount || 0), 0);
+      
+      chartData.push({
+        month: monthName,
+        subscriptions,
+        bills,
+      });
+    }
+    
+    setMonthlyData(chartData);
+  };
 
-  // All items combined for Upcoming view
-  const allItems = [
-    { name: 'Paramount+', frequency: 'Monthly', account: '••1008', dueInDays: 3, amount: 12.99, type: 'subscription' },
-    { name: 'OpenAI', frequency: 'Monthly', account: '••4221', dueInDays: 9, amount: 20.00, type: 'subscription' },
-    { name: 'CURSOR, AI POWERED IDE', frequency: 'Monthly', account: '••4221', dueInDays: 17, amount: 20.00, type: 'subscription' },
-    { name: 'AT&T', frequency: 'Monthly', account: '••4221', dueInDays: 28, amount: 164.44, type: 'bill' },
-  ];
+  const groupByType = () => {
+    const subscriptions = recurringTransactions.filter(r => r.is_subscription);
+    const bills = recurringTransactions.filter(r => !r.is_subscription && r.transaction_type === 'expense');
+    const creditCards = recurringTransactions.filter(r => r.name?.toLowerCase().includes('credit card'));
+    
+    return { subscriptions, bills, creditCards };
+  };
 
-  const next7Days = allItems.filter(item => item.dueInDays <= 7);
-  const comingLater = allItems.filter(item => item.dueInDays > 7);
+  const getUpcomingCharges = () => {
+    const upcoming = recurringTransactions.filter(r => 
+      r.days_until_due !== undefined && r.days_until_due >= 0
+    );
+    
+    const next7Days = upcoming.filter(r => r.days_until_due <= 7);
+    const comingLater = upcoming.filter(r => r.days_until_due > 7 && r.days_until_due <= 30);
+    
+    return { next7Days, comingLater };
+  };
 
-  // Calendar data for October 2025
-  const calendarEvents = [
-    { date: 1, name: 'Paramount+', amount: 12.99 },
-    { date: 2, name: 'CURSOR, AI POWERED IDE', amount: 464.96 },
-    { date: 7, name: 'OpenAI', amount: 20.00 },
-    { date: 15, name: 'CURSOR, AI POWERED IDE', amount: 20.00 },
-    { date: 17, name: 'Credit Card Membership Fee', amount: 895.00 },
-    { date: 20, name: 'American Express Card Payment', amount: 3326.34 },
-    { date: 21, name: 'Chase Credit Card', amount: 340.88 },
-    { date: 26, name: 'AT&T', amount: 164.44 },
-  ];
+  const { subscriptions, bills, creditCards } = groupByType();
+  const { next7Days, comingLater } = getUpcomingCharges();
+
+  // Calendar data - map recurring to calendar events
+  const getCalendarEvents = () => {
+    return recurringTransactions
+      .filter(r => r.next_due_date)
+      .map(r => {
+        const date = new Date(r.next_due_date);
+        return {
+          date: date.getDate(),
+          month: date.getMonth(),
+          year: date.getFullYear(),
+          name: r.name,
+          amount: r.expected_amount || 0,
+        };
+      });
+  };
+
+  const calendarEvents = getCalendarEvents();
 
   const getDaysInMonth = (year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -89,6 +132,16 @@ const Recurring = () => {
     
     return days;
   };
+
+  if (loading) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto">
+        <div className="flex items-center justify-center h-64">
+          <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -137,71 +190,82 @@ const Recurring = () => {
                 <div className="bg-white rounded-2xl shadow-sm p-6">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Next 7 Days</h3>
-                    <p className="text-sm text-gray-600">1 charge for $12.99</p>
+                    <p className="text-sm text-gray-600">
+                      {next7Days.length} charge{next7Days.length !== 1 ? 's' : ''} for ${next7Days.reduce((sum, r) => sum + (r.expected_amount || 0), 0).toFixed(2)}
+                    </p>
                   </div>
-                  <div className="space-y-3">
-                    {next7Days.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                            {item.name.substring(0, 2)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                            <p className="text-xs text-gray-600">in {item.dueInDays} days</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <div className="flex items-center gap-2 text-xs text-gray-600">
-                              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                              {item.account}
+                  {next7Days.length === 0 ? (
+                    <p className="text-sm text-gray-600 text-center py-8">No charges in the next 7 days</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {next7Days.map((item, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                              {item.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                              <p className="text-xs text-gray-600">{item.due_in}</p>
                             </div>
                           </div>
-                          <span className="text-sm font-medium text-gray-900">${item.amount}</span>
-                          <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          <div className="flex items-center gap-3">
+                            {item.accounts && (
+                              <div className="text-right">
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                  ••••{item.accounts.mask}
+                                </div>
+                              </div>
+                            )}
+                            <span className="text-sm font-medium text-gray-900">${(item.expected_amount || 0).toFixed(2)}</span>
+                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Coming Later */}
                 <div className="bg-white rounded-2xl shadow-sm p-6">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Coming Later</h3>
-                    <p className="text-sm text-gray-600">3 charges for $204.44</p>
+                    <p className="text-sm text-gray-600">
+                      {comingLater.length} charge{comingLater.length !== 1 ? 's' : ''} for ${comingLater.reduce((sum, r) => sum + (r.expected_amount || 0), 0).toFixed(2)}
+                    </p>
                   </div>
-                  <div className="space-y-3">
-                    {comingLater.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 ${item.type === 'bill' ? 'bg-blue-600' : 'bg-gray-700'} rounded-full flex items-center justify-center text-white font-bold text-xs relative`}>
-                            {item.name.substring(0, 2)}
-                            {item.type === 'bill' && (
-                              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                                1
-                              </span>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                            <p className="text-xs text-gray-600">in {item.dueInDays} days</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <div className="flex items-center gap-2 text-xs text-gray-600">
-                              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                              {item.account}
+                  {comingLater.length === 0 ? (
+                    <p className="text-sm text-gray-600 text-center py-8">No upcoming charges</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {comingLater.map((item, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 ${!item.is_subscription ? 'bg-blue-600' : 'bg-gray-700'} rounded-full flex items-center justify-center text-white font-bold text-xs relative`}>
+                              {item.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                              <p className="text-xs text-gray-600">{item.due_in}</p>
                             </div>
                           </div>
-                          <span className="text-sm font-medium text-gray-900">${item.amount}</span>
-                          <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          <div className="flex items-center gap-3">
+                            {item.accounts && (
+                              <div className="text-right">
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                  ••••{item.accounts.mask}
+                                </div>
+                              </div>
+                            )}
+                            <span className="text-sm font-medium text-gray-900">${(item.expected_amount || 0).toFixed(2)}</span>
+                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -331,152 +395,173 @@ const Recurring = () => {
           {/* Subscriptions */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">5 Subscriptions</h3>
-              <p className="text-sm text-gray-600">You spend $1,567/yearly</p>
+              <h3 className="text-lg font-bold text-gray-900">{subscriptions.length} Subscription{subscriptions.length !== 1 ? 's' : ''}</h3>
+              <p className="text-sm text-gray-600">
+                You spend ${(subscriptions.reduce((sum, s) => sum + (s.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+              </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map((sub, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                            {sub.name.substring(0, 2)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{sub.name}</p>
-                            <p className="text-xs text-gray-600">{sub.frequency}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">{sub.account}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-900">{sub.due}</td>
-                      <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-sm font-medium text-gray-900">${sub.amount}</span>
-                          <button className="text-gray-400 hover:text-gray-600">⋮</button>
-                        </div>
-                      </td>
+            {subscriptions.length === 0 ? (
+              <p className="text-sm text-gray-600 text-center py-8">No subscriptions found</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {subscriptions.map((sub, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                              {sub.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{sub.name}</p>
+                              <p className="text-xs text-gray-600">{sub.frequency || 'Monthly'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">
+                              {sub.accounts ? `••••${sub.accounts.mask}` : 'N/A'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-900">{sub.due_in || 'N/A'}</td>
+                        <td className="py-4 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-sm font-medium text-gray-900">${(sub.expected_amount || 0).toFixed(2)}</span>
+                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Bills & Utilities */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">1 Bill / Utility</h3>
-              <p className="text-sm text-gray-600">You spend $1,973/yearly</p>
+              <h3 className="text-lg font-bold text-gray-900">{bills.length} Bill{bills.length !== 1 ? 's' : ''} / Utilit{bills.length !== 1 ? 'ies' : 'y'}</h3>
+              <p className="text-sm text-gray-600">
+                You spend ${(bills.reduce((sum, b) => sum + (b.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+              </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bills.map((bill, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                              AT
-                            </div>
-                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                              1
-                            </span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{bill.name}</p>
-                            <p className="text-xs text-gray-600">{bill.frequency}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="text-sm text-gray-600">{bill.account}</span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-900">{bill.due}</td>
-                      <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-sm font-medium text-gray-900">${bill.amount}</span>
-                          <button className="text-gray-400 hover:text-gray-600">⋮</button>
-                        </div>
-                      </td>
+            {bills.length === 0 ? (
+              <p className="text-sm text-gray-600 text-center py-8">No bills found</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {bills.map((bill, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                                {bill.name.substring(0, 2).toUpperCase()}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{bill.name}</p>
+                              <p className="text-xs text-gray-600">{bill.frequency || 'Monthly'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="text-sm text-gray-600">
+                            {bill.accounts ? `••••${bill.accounts.mask}` : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-900">{bill.due_in || 'N/A'}</td>
+                        <td className="py-4 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-sm font-medium text-gray-900">${(bill.expected_amount || 0).toFixed(2)}</span>
+                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Credit Card Payments */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">2 Credit Card Payments</h3>
-              <p className="text-sm text-gray-600">You spend $25,156/yearly</p>
+              <h3 className="text-lg font-bold text-gray-900">{creditCards.length} Credit Card Payment{creditCards.length !== 1 ? 's' : ''}</h3>
+              <p className="text-sm text-gray-600">
+                You spend ${(creditCards.reduce((sum, c) => sum + (c.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+              </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {creditCards.map((card, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                            {card.name.substring(0, 2)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{card.name}</p>
-                            <p className="text-xs text-gray-600">{card.frequency}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="text-sm text-gray-600">{card.account}</span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-900">{card.due}</td>
-                      <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-sm font-medium text-gray-900">${card.amount.toLocaleString()}</span>
-                          <button className="text-gray-400 hover:text-gray-600">⋮</button>
-                        </div>
-                      </td>
+            {creditCards.length === 0 ? (
+              <p className="text-sm text-gray-600 text-center py-8">No credit card payments found</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {creditCards.map((card, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+                              {card.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{card.name}</p>
+                              <p className="text-xs text-gray-600">{card.frequency || 'Monthly'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="text-sm text-gray-600">
+                            {card.accounts ? `••••${card.accounts.mask}` : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-900">{card.due_in || 'N/A'}</td>
+                        <td className="py-4 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-sm font-medium text-gray-900">${(card.expected_amount || 0).toLocaleString()}</span>
+                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <button className="w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
