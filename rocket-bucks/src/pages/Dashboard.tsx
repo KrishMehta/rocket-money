@@ -24,7 +24,7 @@ const Dashboard = () => {
       const [accountsRes, transactionsRes, recurringRes] = await Promise.all([
         api.getAccounts(),
         api.searchTransactions({ limit: 10 }),
-        api.getRecurring({ active_only: true, upcoming_only: true }),
+        api.getRecurring({ upcoming_only: true }), // Don't filter by active_only
       ]);
 
       // Set accounts

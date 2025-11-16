@@ -5,8 +5,10 @@ import { api } from '../utils/api';
 const Recurring = () => {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'viewAll' | 'calendar'>('upcoming');
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
   const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadRecurringData();
@@ -15,7 +17,8 @@ const Recurring = () => {
   const loadRecurringData = async () => {
     try {
       setLoading(true);
-      const { recurring } = await api.getRecurring({ active_only: true });
+      // Don't filter by active_only to see all recurring charges
+      const { recurring } = await api.getRecurring({});
       setRecurringTransactions(recurring || []);
       
       // Calculate monthly breakdown
@@ -24,6 +27,27 @@ const Recurring = () => {
       console.error('Error loading recurring data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncRecurringFromPlaid = async () => {
+    try {
+      setSyncing(true);
+      setSyncMessage(null);
+      console.log('🔄 Syncing recurring transactions from Plaid...');
+      
+      const result = await api.syncRecurringTransactions();
+      
+      console.log('✅ Recurring transactions synced:', result.message);
+      setSyncMessage(`✅ ${result.message}`);
+      
+      // Reload recurring data
+      loadRecurringData();
+    } catch (error: any) {
+      console.error('❌ Error syncing recurring transactions:', error);
+      setSyncMessage(`❌ ${error.message || 'Failed to sync recurring transactions'}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -145,7 +169,37 @@ const Recurring = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Recurring</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Recurring</h1>
+        <button 
+          onClick={syncRecurringFromPlaid}
+          disabled={syncing}
+          className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          title="Sync recurring charges from Plaid"
+        >
+          <span className={syncing ? 'animate-spin' : ''}>🔄</span>
+          {syncing ? 'Syncing...' : 'Sync Recurring'}
+        </button>
+      </div>
+
+      {/* Sync Message */}
+      {syncMessage && (
+        <div className={`mb-6 rounded-lg p-4 ${
+          syncMessage.startsWith('✅') 
+            ? 'bg-green-50 border border-green-200 text-green-800' 
+            : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center justify-between">
+            <p className="text-sm">{syncMessage}</p>
+            <button 
+              onClick={() => setSyncMessage(null)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-6 mb-6 border-b border-gray-200">

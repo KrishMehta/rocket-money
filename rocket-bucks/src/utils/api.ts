@@ -362,5 +362,27 @@ export const api = {
 
     return response.json();
   },
+
+  /**
+   * Sync recurring transactions from Plaid
+   */
+  syncRecurringTransactions: async (): Promise<{
+    success: boolean;
+    message: string;
+    recurring_count: number;
+    synced_at: string;
+  }> => {
+    const response = await fetch(`${getApiUrl()}/recurring/sync`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to sync recurring transactions');
+    }
+
+    return response.json();
+  },
 };
 

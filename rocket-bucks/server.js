@@ -46,6 +46,133 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
+// Helper function to calculate next due date based on frequency
+function calculateNextDueDate(lastDate, frequency) {
+  if (!lastDate) return null;
+  
+  const last = new Date(lastDate);
+  const now = new Date();
+  
+  // If last date is in the future, return it
+  if (last > now) return lastDate;
+  
+  // Calculate next occurrence based on frequency
+  switch (frequency.toUpperCase()) {
+    case 'WEEKLY':
+      last.setDate(last.getDate() + 7);
+      while (last < now) {
+        last.setDate(last.getDate() + 7);
+      }
+      return last.toISOString().split('T')[0];
+      
+    case 'BIWEEKLY':
+      last.setDate(last.getDate() + 14);
+      while (last < now) {
+        last.setDate(last.getDate() + 14);
+      }
+      return last.toISOString().split('T')[0];
+      
+    case 'MONTHLY':
+    case 'APPROXIMATELY_MONTHLY':
+      last.setMonth(last.getMonth() + 1);
+      while (last < now) {
+        last.setMonth(last.getMonth() + 1);
+      }
+      return last.toISOString().split('T')[0];
+      
+    case 'ANNUALLY':
+    case 'YEARLY':
+      last.setFullYear(last.getFullYear() + 1);
+      return last.toISOString().split('T')[0];
+      
+    default:
+      // For irregular or unknown frequencies, estimate 30 days
+      last.setDate(last.getDate() + 30);
+      return last.toISOString().split('T')[0];
+  }
+}
+
+// Helper function to detect recurring patterns from transaction history
+function detectRecurringPatterns(transactions, accountMap) {
+  const merchantGroups = new Map();
+  
+  // Group transactions by normalized merchant name
+  transactions.forEach(tx => {
+    if (tx.transaction_type !== 'expense' || tx.amount <= 0) return;
+    
+    // Normalize merchant name
+    const merchant = (tx.merchant_name || tx.name).toLowerCase().trim();
+    const key = merchant.replace(/[^a-z0-9]/g, '');
+    
+    if (!merchantGroups.has(key)) {
+      merchantGroups.set(key, []);
+    }
+    merchantGroups.get(key).push(tx);
+  });
+  
+  const recurring = [];
+  
+  // Find patterns (2+ occurrences with similar amounts)
+  merchantGroups.forEach((txs, key) => {
+    if (txs.length < 2) return; // Need at least 2 occurrences
+    
+    // Sort by date
+    txs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // Calculate average amount and frequency
+    const amounts = txs.map(t => t.amount);
+    const avgAmount = amounts.reduce((sum, amt) => sum + amt, 0) / amounts.length;
+    const lastAmount = txs[txs.length - 1].amount;
+    
+    // Calculate days between occurrences
+    const daysBetween = [];
+    for (let i = 1; i < txs.length; i++) {
+      const days = (new Date(txs[i].date).getTime() - new Date(txs[i-1].date).getTime()) / (1000 * 60 * 60 * 24);
+      daysBetween.push(days);
+    }
+    const avgDays = daysBetween.reduce((sum, d) => sum + d, 0) / daysBetween.length;
+    
+    // Determine frequency
+    let frequency = 'monthly';
+    if (avgDays < 10) frequency = 'weekly';
+    else if (avgDays < 20) frequency = 'biweekly';
+    else if (avgDays < 45) frequency = 'monthly';
+    else if (avgDays < 100) frequency = 'quarterly';
+    else frequency = 'yearly';
+    
+    // Determine if subscription
+    const name = txs[0].merchant_name || txs[0].name;
+    const isSubscription = name.toLowerCase().includes('subscription') ||
+                          name.toLowerCase().includes('chatgpt') ||
+                          name.toLowerCase().includes('cursor') ||
+                          name.toLowerCase().includes('netflix') ||
+                          name.toLowerCase().includes('spotify') ||
+                          name.toLowerCase().includes('apple') ||
+                          name.toLowerCase().includes('openai') ||
+                          avgAmount < 100; // Small amounts are often subscriptions
+    
+    recurring.push({
+      user_id: txs[0].user_id,
+      account_id: txs[0].account_id,
+      name: name,
+      merchant_name: txs[0].merchant_name || null,
+      expected_amount: lastAmount,
+      average_amount: avgAmount,
+      frequency: frequency,
+      start_date: txs[0].date,
+      last_transaction_date: txs[txs.length - 1].date,
+      next_due_date: calculateNextDueDate(txs[txs.length - 1].date, frequency),
+      transaction_type: 'expense',
+      is_subscription: isSubscription,
+      is_active: true,
+      total_occurrences: txs.length,
+      notes: `Auto-detected from ${txs.length} transactions`,
+    });
+  });
+  
+  return recurring;
+}
+
 // Create Link Token endpoint
 app.post('/api/create_link_token', async (req, res) => {
   try {
@@ -77,6 +204,7 @@ app.post('/api/create_link_token', async (req, res) => {
       },
       client_name: 'Rocket Bucks',
       products: [Products.Transactions],
+      optional_products: [Products.RecurringTransactions], // Add recurring transactions detection
       country_codes: [CountryCode.Us],
       language: 'en',
     };
@@ -314,6 +442,86 @@ app.post('/api/exchange_public_token', async (req, res) => {
         .from('plaid_items')
         .update({ updated_at: now.toISOString() })
         .eq('id', plaidItem.id);
+
+      // Fetch recurring transactions streams from Plaid
+      console.log('🔄 Fetching recurring transaction streams from Plaid...');
+      try {
+        const recurringResponse = await plaidClient.transactionsRecurringGet({
+          access_token: accessToken,
+          account_ids: dbAccounts?.map(a => a.account_id) || [],
+        });
+
+        console.log(`✅ Found ${recurringResponse.data.inflow_streams.length} recurring inflows and ${recurringResponse.data.outflow_streams.length} recurring outflows`);
+
+        // Store recurring outflows (expenses/subscriptions)
+        const recurringToInsert = [];
+        
+        // Process outflow streams (subscriptions, bills)
+        for (const stream of recurringResponse.data.outflow_streams) {
+          const dbAccountId = accountMap.get(stream.account_id);
+          if (!dbAccountId) continue;
+
+          // Determine if it's a subscription based on category
+          const isSubscription = stream.category?.includes('Subscription') || 
+                                 stream.category?.includes('Software') ||
+                                 stream.category?.includes('Streaming');
+
+          recurringToInsert.push({
+            user_id: user.id,
+            account_id: dbAccountId,
+            name: stream.merchant_name || stream.description || 'Unknown',
+            merchant_name: stream.merchant_name || null,
+            expected_amount: stream.last_amount?.amount || stream.average_amount?.amount || 0,
+            average_amount: stream.average_amount?.amount || 0,
+            frequency: stream.frequency.toLowerCase(),
+            start_date: stream.first_date || new Date().toISOString().split('T')[0],
+            last_transaction_date: stream.last_date || null,
+            next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+            transaction_type: 'expense',
+            is_subscription: isSubscription,
+            is_active: stream.status === 'ACTIVE',
+            total_occurrences: stream.transaction_count || 0,
+            notes: stream.category?.join(', ') || null,
+          });
+        }
+
+        // Process inflow streams (income, refunds)
+        for (const stream of recurringResponse.data.inflow_streams) {
+          const dbAccountId = accountMap.get(stream.account_id);
+          if (!dbAccountId) continue;
+
+          recurringToInsert.push({
+            user_id: user.id,
+            account_id: dbAccountId,
+            name: stream.merchant_name || stream.description || 'Unknown',
+            merchant_name: stream.merchant_name || null,
+            expected_amount: Math.abs(stream.last_amount?.amount || stream.average_amount?.amount || 0),
+            average_amount: Math.abs(stream.average_amount?.amount || 0),
+            frequency: stream.frequency.toLowerCase(),
+            start_date: stream.first_date || new Date().toISOString().split('T')[0],
+            last_transaction_date: stream.last_date || null,
+            next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+            transaction_type: 'income',
+            is_subscription: false,
+            is_active: stream.status === 'ACTIVE',
+            total_occurrences: stream.transaction_count || 0,
+            notes: stream.category?.join(', ') || null,
+          });
+        }
+
+        if (recurringToInsert.length > 0) {
+          await supabase
+            .from('recurring_transactions')
+            .upsert(recurringToInsert, {
+              onConflict: 'user_id,name,account_id',
+            });
+          console.log(`💾 Stored ${recurringToInsert.length} recurring transactions`);
+        }
+
+      } catch (recurringError) {
+        console.error('⚠️  Warning: Failed to fetch recurring streams:', recurringError);
+        // Don't fail the whole request if recurring fetch fails
+      }
 
     } catch (syncError) {
       console.error('⚠️  Warning: Failed to auto-sync transactions:', syncError);
@@ -560,6 +768,82 @@ app.post('/api/transactions/sync', async (req, res) => {
           .update({ updated_at: now.toISOString() })
           .eq('id', item.id);
 
+        // Also fetch recurring transaction streams
+        try {
+          const recurringResponse = await plaidClient.transactionsRecurringGet({
+            access_token: accessToken,
+            account_ids: accounts?.map(a => a.account_id) || [],
+          });
+
+          console.log(`✅ Found ${recurringResponse.data.inflow_streams.length} recurring inflows and ${recurringResponse.data.outflow_streams.length} recurring outflows for ${item.institution_name}`);
+
+          // Store recurring streams
+          const recurringToInsert = [];
+          
+          // Process outflow streams
+          for (const stream of recurringResponse.data.outflow_streams) {
+            const dbAccountId = accountMap.get(stream.account_id);
+            if (!dbAccountId) continue;
+
+            const isSubscription = stream.category?.includes('Subscription') || 
+                                   stream.category?.includes('Software') ||
+                                   stream.category?.includes('Streaming');
+
+            recurringToInsert.push({
+              user_id: user.id,
+              account_id: dbAccountId,
+              name: stream.merchant_name || stream.description || 'Unknown',
+              merchant_name: stream.merchant_name || null,
+              expected_amount: stream.last_amount?.amount || stream.average_amount?.amount || 0,
+              average_amount: stream.average_amount?.amount || 0,
+              frequency: stream.frequency.toLowerCase(),
+              start_date: stream.first_date || new Date().toISOString().split('T')[0],
+              last_transaction_date: stream.last_date || null,
+              next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+              transaction_type: 'expense',
+              is_subscription: isSubscription,
+              is_active: stream.status === 'ACTIVE',
+              total_occurrences: stream.transaction_count || 0,
+              notes: stream.category?.join(', ') || null,
+            });
+          }
+
+          // Process inflow streams
+          for (const stream of recurringResponse.data.inflow_streams) {
+            const dbAccountId = accountMap.get(stream.account_id);
+            if (!dbAccountId) continue;
+
+            recurringToInsert.push({
+              user_id: user.id,
+              account_id: dbAccountId,
+              name: stream.merchant_name || stream.description || 'Unknown',
+              merchant_name: stream.merchant_name || null,
+              expected_amount: Math.abs(stream.last_amount?.amount || stream.average_amount?.amount || 0),
+              average_amount: Math.abs(stream.average_amount?.amount || 0),
+              frequency: stream.frequency.toLowerCase(),
+              start_date: stream.first_date || new Date().toISOString().split('T')[0],
+              last_transaction_date: stream.last_date || null,
+              next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+              transaction_type: 'income',
+              is_subscription: false,
+              is_active: stream.status === 'ACTIVE',
+              total_occurrences: stream.transaction_count || 0,
+              notes: stream.category?.join(', ') || null,
+            });
+          }
+
+          if (recurringToInsert.length > 0) {
+            await supabase
+              .from('recurring_transactions')
+              .upsert(recurringToInsert, {
+                onConflict: 'user_id,name,account_id',
+              });
+            console.log(`💾 Stored ${recurringToInsert.length} recurring transactions for ${item.institution_name}`);
+          }
+        } catch (recurringError) {
+          console.error(`⚠️  Warning: Failed to fetch recurring streams for ${item.institution_name}:`, recurringError);
+        }
+
       } catch (error) {
         console.error(`Error fetching transactions for item ${item.id}:`, error);
       }
@@ -568,7 +852,7 @@ app.post('/api/transactions/sync', async (req, res) => {
     console.log(`✅ Manual sync complete: ${totalSynced} transactions synced`);
     res.json({ 
       success: true,
-      message: `Successfully synced ${totalSynced} transaction${totalSynced !== 1 ? 's' : ''}`,
+      message: `Successfully synced ${totalSynced} transaction${totalSynced !== 1 ? 's' : ''} and recurring charges`,
       synced_count: totalSynced,
       synced_at: now.toISOString()
     });
@@ -1050,6 +1334,189 @@ app.get('/api/accounts', async (req, res) => {
   }
 });
 
+// Sync recurring transactions from Plaid
+app.post('/api/recurring/sync', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    console.log('🔄 Syncing recurring transactions from Plaid for user:', user.id);
+
+    // Get user's Plaid items
+    const { data: plaidItems, error: itemsError } = await supabase
+      .from('plaid_items')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (itemsError || !plaidItems || plaidItems.length === 0) {
+      return res.status(400).json({ error: 'No accounts connected' });
+    }
+
+    let totalRecurring = 0;
+
+    for (const item of plaidItems) {
+      try {
+        // Decrypt access token
+        let accessToken = item.access_token;
+        if (encryptionKey && accessToken.includes(':')) {
+          try {
+            accessToken = decrypt(accessToken, encryptionKey);
+          } catch (decryptError) {
+            console.error(`Error decrypting access token for item ${item.id}:`, decryptError);
+            continue;
+          }
+        }
+
+        // Get account mappings
+        const { data: accounts } = await supabase
+          .from('accounts')
+          .select('id, account_id')
+          .eq('plaid_item_id', item.id);
+
+        const accountMap = new Map(accounts?.map(a => [a.account_id, a.id]) || []);
+
+        // Fetch recurring streams from Plaid
+        const recurringResponse = await plaidClient.transactionsRecurringGet({
+          access_token: accessToken,
+          account_ids: accounts?.map(a => a.account_id) || [],
+        });
+
+        console.log(`✅ Found ${recurringResponse.data.inflow_streams.length} inflows and ${recurringResponse.data.outflow_streams.length} outflows for ${item.institution_name}`);
+        
+        // Log first few streams for debugging
+        if (recurringResponse.data.outflow_streams.length > 0) {
+          console.log('  Sample outflow streams:');
+          recurringResponse.data.outflow_streams.slice(0, 3).forEach(stream => {
+            console.log(`    - ${stream.merchant_name || stream.description}: $${stream.last_amount?.amount || 0} (${stream.frequency})`);
+          });
+        }
+
+        const recurringToInsert = [];
+        
+        // Process outflow streams (expenses)
+        for (const stream of recurringResponse.data.outflow_streams) {
+          const dbAccountId = accountMap.get(stream.account_id);
+          if (!dbAccountId) continue;
+
+          const isSubscription = stream.category?.includes('Subscription') || 
+                                 stream.category?.includes('Software') ||
+                                 stream.category?.includes('Streaming');
+
+          recurringToInsert.push({
+            user_id: user.id,
+            account_id: dbAccountId,
+            name: stream.merchant_name || stream.description || 'Unknown',
+            merchant_name: stream.merchant_name || null,
+            expected_amount: stream.last_amount?.amount || stream.average_amount?.amount || 0,
+            average_amount: stream.average_amount?.amount || 0,
+            frequency: stream.frequency.toLowerCase(),
+            start_date: stream.first_date || new Date().toISOString().split('T')[0],
+            last_transaction_date: stream.last_date || null,
+            next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+            transaction_type: 'expense',
+            is_subscription: isSubscription,
+            is_active: stream.status === 'ACTIVE',
+            total_occurrences: stream.transaction_count || 0,
+            notes: stream.category?.join(', ') || null,
+          });
+        }
+
+        // Process inflow streams (income)
+        for (const stream of recurringResponse.data.inflow_streams) {
+          const dbAccountId = accountMap.get(stream.account_id);
+          if (!dbAccountId) continue;
+
+          recurringToInsert.push({
+            user_id: user.id,
+            account_id: dbAccountId,
+            name: stream.merchant_name || stream.description || 'Unknown',
+            merchant_name: stream.merchant_name || null,
+            expected_amount: Math.abs(stream.last_amount?.amount || stream.average_amount?.amount || 0),
+            average_amount: Math.abs(stream.average_amount?.amount || 0),
+            frequency: stream.frequency.toLowerCase(),
+            start_date: stream.first_date || new Date().toISOString().split('T')[0],
+            last_transaction_date: stream.last_date || null,
+            next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
+            transaction_type: 'income',
+            is_subscription: false,
+            is_active: stream.status === 'ACTIVE',
+            total_occurrences: stream.transaction_count || 0,
+            notes: stream.category?.join(', ') || null,
+          });
+        }
+
+        if (recurringToInsert.length > 0) {
+          await supabase
+            .from('recurring_transactions')
+            .upsert(recurringToInsert, {
+              onConflict: 'user_id,name,account_id',
+            });
+          totalRecurring += recurringToInsert.length;
+          console.log(`💾 Stored ${recurringToInsert.length} recurring transactions for ${item.institution_name}`);
+        } else {
+          // Fallback: Use pattern detection if Plaid didn't return any recurring streams
+          console.log('  No recurring streams from Plaid API - using pattern detection...');
+          
+          const { data: existingTransactions } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('account_id', accounts?.map(a => a.id) || [])
+            .order('date', { ascending: false })
+            .limit(500);
+
+          if (existingTransactions && existingTransactions.length > 0) {
+            const detected = detectRecurringPatterns(existingTransactions, accountMap);
+            
+            if (detected.length > 0) {
+              await supabase
+                .from('recurring_transactions')
+                .upsert(detected, {
+                  onConflict: 'user_id,name,account_id',
+                });
+              totalRecurring += detected.length;
+              console.log(`💾 Detected and stored ${detected.length} recurring patterns for ${item.institution_name}`);
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error(`❌ Error syncing recurring for item ${item.id}:`, error);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully synced ${totalRecurring} recurring charge${totalRecurring !== 1 ? 's' : ''}`,
+      recurring_count: totalRecurring,
+      synced_at: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('❌ Error syncing recurring transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to sync recurring transactions',
+      details: error.message 
+    });
+  }
+});
+
 // Get recurring transactions endpoint
 app.get('/api/recurring', async (req, res) => {
   try {
@@ -1099,7 +1566,6 @@ app.get('/api/recurring', async (req, res) => {
     if (upcoming_only === 'true') {
       const today = new Date().toISOString().split('T')[0];
       query = query
-        .eq('is_active', true)
         .gte('next_due_date', today)
         .order('next_due_date', { ascending: true });
     }
