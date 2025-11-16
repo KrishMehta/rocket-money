@@ -232,6 +232,16 @@ export const api = {
   },
 
   /**
+   * Get API URL for custom requests
+   */
+  getApiUrl: () => getApiUrl(),
+
+  /**
+   * Get auth headers for custom requests
+   */
+  getAuthHeaders: () => getAuthHeaders(),
+
+  /**
    * Search transactions with filters
    */
   searchTransactions: async (filters?: {

@@ -1747,6 +1747,116 @@ app.get('/api/test-supabase', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
+// Delete entire user account endpoint
+app.delete('/api/accounts/delete', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    console.log(`🗑️  DELETING ENTIRE USER ACCOUNT: ${user.email} (${user.id})`);
+
+    // Get counts for reporting
+    const { count: accountsCount } = await supabase
+      .from('accounts')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+
+    const { count: transactionsCount } = await supabase
+      .from('transactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+
+    const { count: plaidItemsCount } = await supabase
+      .from('plaid_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+
+    // Delete in order (due to foreign key constraints):
+    // 1. Delete transactions
+    const { error: txError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (txError) {
+      console.error('Error deleting transactions:', txError);
+    } else {
+      console.log(`✅ Deleted ${transactionsCount || 0} transactions`);
+    }
+
+    // 2. Delete recurring transactions
+    const { error: recurringError } = await supabase
+      .from('recurring_transactions')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (recurringError) {
+      console.error('Error deleting recurring transactions:', recurringError);
+    } else {
+      console.log(`✅ Deleted recurring transactions`);
+    }
+
+    // 3. Delete accounts
+    const { error: accountsError } = await supabase
+      .from('accounts')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (accountsError) {
+      console.error('Error deleting accounts:', accountsError);
+    } else {
+      console.log(`✅ Deleted ${accountsCount || 0} accounts`);
+    }
+
+    // 4. Delete Plaid items
+    const { error: itemsError } = await supabase
+      .from('plaid_items')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (itemsError) {
+      console.error('Error deleting plaid items:', itemsError);
+    } else {
+      console.log(`✅ Deleted ${plaidItemsCount || 0} Plaid items`);
+    }
+
+    // Note: We cannot delete the user from Supabase auth using the anon key
+    // The user will need to be deleted from the Supabase dashboard or using the service role key
+    console.log(`⚠️  User account data deleted, but user still exists in Supabase Auth`);
+    console.log(`   To fully delete the user, remove them from Supabase dashboard > Authentication > Users`);
+
+    res.json({
+      success: true,
+      message: 'Account data deleted successfully. Please sign out and contact support to fully remove your account from the authentication system.',
+      deleted_accounts: accountsCount || 0,
+      deleted_transactions: transactionsCount || 0,
+      deleted_plaid_items: plaidItemsCount || 0,
+    });
+  } catch (error) {
+    console.error('❌ Error deleting user account:', error);
+    res.status(500).json({
+      error: 'Failed to delete account',
+      details: error.message,
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Rocket Bucks API server running on port ${PORT}`);
   console.log(`📡 Make sure to set SUPABASE_URL and SUPABASE_ANON_KEY in .env file`);
