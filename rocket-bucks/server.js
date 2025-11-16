@@ -371,9 +371,14 @@ app.post('/api/exchange_public_token', async (req, res) => {
     // Automatically sync transactions for newly linked account (no rate limit)
     console.log('🔄 Auto-syncing transactions for newly linked account...');
     try {
+      const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const startDate = thirtyDaysAgo.toISOString().split('T')[0];
       const endDate = now.toISOString().split('T')[0];
+
+      // Wait 10 seconds for Plaid to prepare transaction data
+      console.log('⏳ Waiting for Plaid to prepare transaction data (this may take a moment)...');
+      await new Promise(resolve => setTimeout(resolve, 10000));
 
       const transactionsResponse = await plaidClient.transactionsGet({
         access_token: accessToken,
@@ -390,6 +395,8 @@ app.post('/api/exchange_public_token', async (req, res) => {
         .eq('plaid_item_id', plaidItem.id);
 
       const accountMap = new Map(dbAccounts?.map(a => [a.account_id, a.id]) || []);
+
+      let transactionsSynced = false;
 
       // Store transactions in database
       if (transactionsResponse.data.transactions.length > 0) {
@@ -433,14 +440,23 @@ app.post('/api/exchange_public_token', async (req, res) => {
               onConflict: 'account_id,transaction_id',
             });
           console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+          transactionsSynced = true;
         }
+      } else {
+        console.log('ℹ️  No transactions returned from Plaid (may be empty account or still processing)');
       }
 
-      // Update the plaid_item's updated_at timestamp
-      await supabase
-        .from('plaid_items')
-        .update({ updated_at: now.toISOString() })
-        .eq('id', plaidItem.id);
+      // Only update the timestamp if transactions were actually synced
+      // This prevents rate-limiting when transactions aren't ready yet
+      if (transactionsSynced) {
+        await supabase
+          .from('plaid_items')
+          .update({ updated_at: now.toISOString() })
+          .eq('id', plaidItem.id);
+        console.log('✅ Updated sync timestamp');
+      } else {
+        console.log('ℹ️  Not updating timestamp - no transactions synced yet');
+      }
 
       // Fetch recurring transactions streams from Plaid
       console.log('🔄 Fetching recurring transaction streams from Plaid...');
@@ -523,7 +539,13 @@ app.post('/api/exchange_public_token', async (req, res) => {
       }
 
     } catch (syncError) {
-      console.error('⚠️  Warning: Failed to auto-sync transactions:', syncError);
+      // Handle PRODUCT_NOT_READY error (common in sandbox/new accounts)
+      if (syncError.response && syncError.response.data && syncError.response.data.error_code === 'PRODUCT_NOT_READY') {
+        console.log('⚠️  Transactions not ready yet from Plaid. This is normal for newly linked accounts.');
+        console.log('💡 User can manually sync transactions in 1-2 minutes by clicking "Sync from Plaid"');
+      } else {
+        console.error('⚠️  Warning: Failed to auto-sync transactions:', syncError.message || syncError);
+      }
       // Don't fail the whole request if sync fails
     }
 
