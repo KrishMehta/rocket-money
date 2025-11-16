@@ -204,7 +204,6 @@ app.post('/api/create_link_token', async (req, res) => {
       },
       client_name: 'Rocket Bucks',
       products: [Products.Transactions],
-      optional_products: [Products.RecurringTransactions], // Add recurring transactions detection
       country_codes: [CountryCode.Us],
       language: 'en',
     };
