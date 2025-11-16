@@ -5,7 +5,7 @@ import { decrypt, isEncrypted } from '../lib/encryption';
 
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox,
+  basePath: PlaidEnvironments.production,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID || '',

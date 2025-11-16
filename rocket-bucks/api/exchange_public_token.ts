@@ -1,11 +1,11 @@
-import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
+import { Configuration, PlaidApi, PlaidEnvironments, CountryCode } from 'plaid';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createSupabaseClient } from '../lib/supabase';
 import { encrypt } from '../lib/encryption';
 
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox,
+  basePath: PlaidEnvironments.production,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID || '',
@@ -66,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const institutionResponse = await plaidClient.institutionsGetById({
           institution_id: institutionId,
-          country_codes: ['US'],
+          country_codes: [CountryCode.Us],
         });
         institutionName = institutionResponse.data.institution.name;
       } catch (err) {
@@ -123,6 +123,79 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (accountsError) {
         console.error('Error saving accounts:', accountsError);
       }
+    }
+
+    // Automatically sync transactions for newly linked account (no rate limit)
+    console.log('🔄 Auto-syncing transactions for newly linked account...');
+    try {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+
+      const transactionsResponse = await plaidClient.transactionsGet({
+        access_token: accessToken,
+        start_date: startDate,
+        end_date: endDate,
+      });
+
+      console.log(`✅ Fetched ${transactionsResponse.data.transactions.length} transactions from ${institutionName}`);
+
+      // Get account mappings
+      const { data: dbAccounts } = await supabase
+        .from('accounts')
+        .select('id, account_id')
+        .eq('plaid_item_id', plaidItem.id);
+
+      const accountMap = new Map(dbAccounts?.map(a => [a.account_id, a.id]) || []);
+
+      // Store transactions in database
+      if (transactionsResponse.data.transactions.length > 0) {
+        const transactionsToInsert = transactionsResponse.data.transactions.map((tx: any) => {
+          const dbAccountId = accountMap.get(tx.account_id);
+          return {
+            user_id: user.id,
+            account_id: dbAccountId,
+            transaction_id: tx.transaction_id,
+            amount: tx.amount,
+            date: tx.date,
+            authorized_date: tx.authorized_date || null,
+            posted_date: tx.date,
+            name: tx.name,
+            // Plaid categorization
+            plaid_category: tx.category || [],
+            plaid_primary_category: tx.category?.[0] || null,
+            plaid_detailed_category: tx.category ? tx.category.join(' > ') : null,
+            // Merchant and location
+            merchant_name: tx.merchant_name || null,
+            location_city: tx.location?.city || null,
+            location_state: tx.location?.region || null,
+            location_country: tx.location?.country || null,
+            location_address: tx.location?.address || null,
+            location_lat: tx.location?.lat || null,
+            location_lon: tx.location?.lon || null,
+            // Transaction metadata
+            transaction_type: tx.amount > 0 ? 'expense' : 'income',
+            payment_channel: tx.payment_channel || null,
+            check_number: tx.check_number || null,
+            // Flags
+            pending: tx.pending || false,
+            is_transfer: tx.amount === 0 || false,
+          };
+        }).filter((tx: any) => tx.account_id);
+
+        if (transactionsToInsert.length > 0) {
+          await supabase
+            .from('transactions')
+            .upsert(transactionsToInsert, {
+              onConflict: 'account_id,transaction_id',
+            });
+          console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+        }
+      }
+    } catch (txError: any) {
+      console.error('⚠️  Warning: Failed to auto-sync transactions:', txError);
+      // Don't fail the whole request if transaction sync fails
     }
 
     // Don't return access_token to client - it's stored encrypted in database

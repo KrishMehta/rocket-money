@@ -4,7 +4,7 @@ import { createSupabaseClient } from '../lib/supabase';
 
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox, // Use sandbox for testing, change to production when ready
+  basePath: PlaidEnvironments.production,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID || '',
