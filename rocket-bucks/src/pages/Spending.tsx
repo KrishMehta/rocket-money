@@ -181,13 +181,27 @@ const Spending = () => {
     setLargestPurchases(largest);
   };
 
+  const getCategoryName = (transaction: any) => {
+    return transaction.user_category_name || 
+           transaction.transaction_categories?.name || 
+           transaction.plaid_primary_category || 
+           'Uncategorized';
+  };
+
   const calculateSummary = async (txData: any[], startDate: Date, endDate: Date) => {
     // Current period
-    // Income transactions are stored as negative amounts (Plaid convention)
-    // So we need to take absolute value and sum them
+    // Income should be calculated based on transactions categorized as "Income"
+    // not just transaction_type, since users can categorize transactions differently
     const incomeRaw = txData
-      .filter((tx: any) => tx.transaction_type === 'income')
-      .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
+      .filter((tx: any) => {
+        const categoryName = getCategoryName(tx);
+        return categoryName === 'Income';
+      })
+      .reduce((sum, tx) => {
+        // Income transactions are stored as negative amounts (Plaid convention)
+        // So we need to take absolute value
+        return sum + Math.abs(tx.amount || 0);
+      }, 0);
     // Round final result to 2 decimal places to avoid floating point precision issues
     const income = Math.round(incomeRaw * 100) / 100;
     
@@ -199,7 +213,10 @@ const Spending = () => {
       .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
       .reduce((sum, tx) => sum + tx.amount, 0);
 
-    const incomeCount = txData.filter((tx: any) => tx.transaction_type === 'income').length;
+    const incomeCount = txData.filter((tx: any) => {
+      const categoryName = getCategoryName(tx);
+      return categoryName === 'Income';
+    }).length;
 
     // Previous period for comparison
     const periodLength = endDate.getTime() - startDate.getTime();
