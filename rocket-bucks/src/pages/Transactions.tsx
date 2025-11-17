@@ -520,9 +520,6 @@ const Transactions = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="w-12 px-6 py-4">
-                  <input type="checkbox" className="rounded" />
-                </th>
                 <th className="text-left py-4 px-6 text-sm font-medium text-gray-600">Date</th>
                 <th className="text-left py-4 px-6 text-sm font-medium text-gray-600">Name</th>
                 <th className="text-left py-4 px-6 text-sm font-medium text-gray-600">Category</th>
@@ -533,7 +530,7 @@ const Transactions = () => {
             <tbody>
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-500">
+                  <td colSpan={5} className="py-12 text-center text-gray-500">
                     {loading || syncing ? (
                       <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
@@ -554,9 +551,6 @@ const Transactions = () => {
               ) : (
                 transactions.map((transaction) => (
                   <tr key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <input type="checkbox" className="rounded" />
-                  </td>
                     <td className="py-4 px-6 text-sm text-gray-900">
                       {formatDate(transaction.date)}
                     </td>
