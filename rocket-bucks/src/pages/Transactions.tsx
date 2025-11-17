@@ -13,6 +13,8 @@ const Transactions = () => {
   const [categorizing, setCategorizing] = useState(false);
   const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<string | null>(null);
+  const [deletingTransaction, setDeletingTransaction] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -284,6 +286,42 @@ const Transactions = () => {
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
   };
 
+  // Update transaction category
+  const updateTransactionCategory = async (transactionId: string, categoryName: string) => {
+    try {
+      await api.updateTransaction(transactionId, {
+        user_category_name: categoryName || null,
+      });
+      console.log(`✅ Updated transaction ${transactionId} category to ${categoryName}`);
+      setEditingTransaction(null);
+      // Reload transactions to show updated category
+      loadTransactionsFromDB();
+    } catch (error: any) {
+      console.error('❌ Error updating transaction category:', error);
+      alert('Failed to update category: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  // Delete transaction
+  const deleteTransaction = async (transactionId: string) => {
+    if (!confirm('Are you sure you want to delete this transaction? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingTransaction(transactionId);
+      await api.deleteTransaction(transactionId);
+      console.log(`✅ Deleted transaction ${transactionId}`);
+      // Reload transactions to remove deleted one
+      loadTransactionsFromDB();
+    } catch (error: any) {
+      console.error('❌ Error deleting transaction:', error);
+      alert('Failed to delete transaction: ' + (error.message || 'Unknown error'));
+    } finally {
+      setDeletingTransaction(null);
+    }
+  };
+
   if (loading && transactions.length === 0) {
     return (
       <div className="p-8 max-w-7xl mx-auto">
@@ -541,22 +579,53 @@ const Transactions = () => {
                     </div>
                   </td>
                   <td className="py-4 px-6">
-                    <div className="flex items-center gap-2">
+                    {editingTransaction === transaction.id ? (
+                      <select
+                        defaultValue={getCategoryName(transaction)}
+                        onChange={(e) => {
+                          updateTransactionCategory(transaction.id, e.target.value);
+                        }}
+                        onBlur={() => setEditingTransaction(null)}
+                        autoFocus
+                        className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="">Uncategorized</option>
+                        {categories.map((cat) => (
+                          <option key={cat.id} value={cat.name}>{cat.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-2">
                         <span className="text-lg">{getCategoryIcon(transaction)}</span>
                         <span className="text-sm text-gray-900">{getCategoryName(transaction)}</span>
-                    </div>
+                      </div>
+                    )}
                   </td>
                   <td className="py-4 px-6">
                     <div className="flex items-center justify-center gap-2">
                         <button 
                           onClick={() => {
-                            // TODO: Implement edit functionality
-                            console.log('Edit transaction', transaction.id);
+                            setEditingTransaction(transaction.id);
                           }}
-                          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-                          title="Edit transaction"
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                          title="Edit category"
+                          disabled={editingTransaction === transaction.id}
                         >
                         ✏️
+                      </button>
+                      <button 
+                        onClick={() => {
+                          deleteTransaction(transaction.id);
+                        }}
+                        disabled={deletingTransaction === transaction.id}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                        title="Delete transaction"
+                      >
+                        {deletingTransaction === transaction.id ? (
+                          <span className="animate-spin">⏳</span>
+                        ) : (
+                          '🗑️'
+                        )}
                       </button>
                     </div>
                   </td>

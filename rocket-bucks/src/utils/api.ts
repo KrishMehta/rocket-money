@@ -314,6 +314,23 @@ export const api = {
   },
 
   /**
+   * Delete a transaction
+   */
+  deleteTransaction: async (transactionId: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${getApiUrl()}/transactions/delete?transaction_id=${transactionId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete transaction');
+    }
+
+    return response.json();
+  },
+
+  /**
    * Get recurring transactions
    */
   getRecurring: async (options?: {

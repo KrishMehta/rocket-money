@@ -1600,6 +1600,116 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
   }
 });
 
+// Update transaction endpoint
+app.patch('/api/transactions/update', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { transaction_id } = req.query;
+    const { category_id, user_category_name, notes, tags, excluded_from_budget, is_recurring } = req.body;
+
+    if (!transaction_id) {
+      return res.status(400).json({ error: 'transaction_id is required' });
+    }
+
+    // Build update object with only provided fields
+    const updates = {};
+    if (category_id !== undefined) updates.category_id = category_id;
+    if (user_category_name !== undefined) updates.user_category_name = user_category_name;
+    if (notes !== undefined) updates.notes = notes;
+    if (tags !== undefined) updates.tags = tags;
+    if (excluded_from_budget !== undefined) updates.excluded_from_budget = excluded_from_budget;
+    if (is_recurring !== undefined) updates.is_recurring = is_recurring;
+
+    // Update transaction
+    const { data, error } = await supabase
+      .from('transactions')
+      .update(updates)
+      .eq('id', transaction_id)
+      .eq('user_id', user.id) // Ensure user owns this transaction
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating transaction:', error);
+      return res.status(500).json({ error: 'Failed to update transaction' });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    res.json({ transaction: data });
+  } catch (error) {
+    console.error('Error updating transaction:', error);
+    res.status(500).json({ error: error.message || 'Failed to update transaction' });
+  }
+});
+
+// Delete transaction endpoint
+app.delete('/api/transactions/delete', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const { transaction_id } = req.query;
+
+    if (!transaction_id) {
+      return res.status(400).json({ error: 'transaction_id is required' });
+    }
+
+    // Delete transaction (ensure user owns it)
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', transaction_id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error deleting transaction:', error);
+      return res.status(500).json({ error: 'Failed to delete transaction' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete transaction' });
+  }
+});
+
 // Get categories endpoint
 app.get('/api/categories', async (req, res) => {
   try {
