@@ -85,55 +85,232 @@ const Recurring = () => {
   };
 
   const calculateMonthlyBreakdown = (recurring: any[]) => {
-    // Create last 6 months of data
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Common subscription merchant names/keywords for classification
+    const subscriptionKeywords = [
+      'cursor', 'openai', 'apple', 'squarespace', 'workspace', 'worksp', 'spotify', 'netflix',
+      'disney', 'hulu', 'amazon prime', 'youtube premium', 'adobe', 'microsoft',
+      'google', 'dropbox', 'slack', 'zoom', 'notion', 'figma', 'canva', 'github',
+      'gitlab', 'atlassian', 'jira', 'confluence', 'salesforce', 'hubspot', 'zendesk',
+      'intercom', 'mailchimp', 'sendgrid', 'twilio', 'stripe', 'paypal', 'shopify',
+      'wix', 'wordpress', 'webflow', 'framer', 'linear', 'vercel', 'netlify',
+      'cloudflare', 'aws', 'azure', 'gcp', 'digitalocean', 'heroku', 'mongodb',
+      'redis', 'elastic', 'datadog', 'sentry', 'new relic', 'loggly', 'papertrail'
+    ];
+    
+    // Helper function to check if a transaction is a subscription (same as groupByType)
+    const isSubscription = (r: any) => {
+      if (r.is_subscription) return true;
+      const merchantName = (r.name || r.merchant_name || '').toLowerCase();
+      return subscriptionKeywords.some(keyword => merchantName.includes(keyword));
+    };
+    
+    // Helper function to check if a recurring transaction occurs in a specific month
+    const occursInMonth = (r: any, monthStart: Date, monthEnd: Date): boolean => {
+      const freqLower = (r.frequency || 'monthly').toLowerCase();
+      const startDate = r.start_date ? new Date(r.start_date) : null;
+      const lastDate = r.last_transaction_date ? new Date(r.last_transaction_date) : null;
+      const nextDueDate = r.next_due_date ? new Date(r.next_due_date) : null;
+      
+      // Use last_transaction_date or start_date as the base date
+      const baseDate = lastDate || startDate;
+      if (!baseDate) return false;
+      
+      // Check if transaction is active during this month
+      if (r.end_date) {
+        const endDate = new Date(r.end_date);
+        if (endDate < monthStart) return false;
+      }
+      if (startDate && startDate > monthEnd) return false;
+      
+      // For monthly, include every month after start date
+      if (freqLower.includes('monthly') || freqLower.includes('approximately_monthly')) {
+        return baseDate <= monthEnd;
+      }
+      
+      // For annual/yearly, only include in the month it's actually billed
+      if (freqLower.includes('annually') || freqLower.includes('yearly')) {
+        // Check if last transaction was in this month
+        if (lastDate && lastDate >= monthStart && lastDate <= monthEnd) {
+          return true;
+        }
+        
+        // Check if next due date falls in this month (for future projections)
+        if (nextDueDate && nextDueDate >= monthStart && nextDueDate <= monthEnd) {
+          return true;
+        }
+        
+        return false;
+      }
+      
+      // For quarterly, only include in the month it's actually billed
+      if (freqLower.includes('quarterly')) {
+        // Check if last transaction was in this month
+        if (lastDate && lastDate >= monthStart && lastDate <= monthEnd) {
+          return true;
+        }
+        
+        // Check if next due date falls in this month (for future projections)
+        if (nextDueDate && nextDueDate >= monthStart && nextDueDate <= monthEnd) {
+          return true;
+        }
+        
+        return false;
+      }
+      
+      // For bimonthly, only include in the month it's actually billed
+      if (freqLower.includes('bimonthly') || freqLower.includes('bi-monthly')) {
+        // Check if last transaction was in this month
+        if (lastDate && lastDate >= monthStart && lastDate <= monthEnd) {
+          return true;
+        }
+        
+        // Check if next due date falls in this month (for future projections)
+        if (nextDueDate && nextDueDate >= monthStart && nextDueDate <= monthEnd) {
+          return true;
+        }
+        
+        return false;
+      }
+      
+      // For weekly, calculate how many times it occurs in this month
+      if (freqLower.includes('weekly')) {
+        if (baseDate > monthEnd) return false;
+        // Count weeks from base date to month start
+        const weeksFromStart = Math.floor((monthStart.getTime() - baseDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        // Check if any week falls within this month
+        const firstWeekInMonth = new Date(baseDate);
+        firstWeekInMonth.setDate(firstWeekInMonth.getDate() + (weeksFromStart * 7));
+        return firstWeekInMonth <= monthEnd && baseDate <= monthEnd;
+      }
+      
+      // For biweekly, similar logic
+      if (freqLower.includes('biweekly') || freqLower.includes('bi-weekly')) {
+        if (baseDate > monthEnd) return false;
+        const biweeksFromStart = Math.floor((monthStart.getTime() - baseDate.getTime()) / (14 * 24 * 60 * 60 * 1000));
+        const firstBiweekInMonth = new Date(baseDate);
+        firstBiweekInMonth.setDate(firstBiweekInMonth.getDate() + (biweeksFromStart * 14));
+        return firstBiweekInMonth <= monthEnd && baseDate <= monthEnd;
+      }
+      
+      // Default: include if active
+      return baseDate <= monthEnd;
+    };
+    
+    // Helper function to get the amount for a recurring transaction in a specific month
+    const getAmountForMonth = (r: any, monthStart: Date, monthEnd: Date): number => {
+      if (!occursInMonth(r, monthStart, monthEnd)) return 0;
+      
+      const freqLower = (r.frequency || 'monthly').toLowerCase();
+      const amount = r.expected_amount || 0;
+      
+      // For annual/yearly, return full amount
+      if (freqLower.includes('annually') || freqLower.includes('yearly')) {
+        return amount;
+      }
+      
+      // For quarterly, return full amount
+      if (freqLower.includes('quarterly')) {
+        return amount;
+      }
+      
+      // For bimonthly, return full amount
+      if (freqLower.includes('bimonthly') || freqLower.includes('bi-monthly')) {
+        return amount;
+      }
+      
+      // For weekly, calculate occurrences in this month
+      if (freqLower.includes('weekly')) {
+        const startDate = r.start_date ? new Date(r.start_date) : r.last_transaction_date ? new Date(r.last_transaction_date) : monthStart;
+        const firstWeekInMonth = new Date(Math.max(startDate.getTime(), monthStart.getTime()));
+        // Count weeks in this month
+        let weeks = 0;
+        let currentWeek = new Date(firstWeekInMonth);
+        while (currentWeek <= monthEnd) {
+          weeks++;
+          currentWeek.setDate(currentWeek.getDate() + 7);
+        }
+        return amount * weeks;
+      }
+      
+      // For biweekly, calculate occurrences in this month
+      if (freqLower.includes('biweekly') || freqLower.includes('bi-weekly')) {
+        const startDate = r.start_date ? new Date(r.start_date) : r.last_transaction_date ? new Date(r.last_transaction_date) : monthStart;
+        const firstBiweekInMonth = new Date(Math.max(startDate.getTime(), monthStart.getTime()));
+        let biweeks = 0;
+        let currentBiweek = new Date(firstBiweekInMonth);
+        while (currentBiweek <= monthEnd) {
+          biweeks++;
+          currentBiweek.setDate(currentBiweek.getDate() + 14);
+        }
+        return amount * biweeks;
+      }
+      
+      // For monthly, return the amount
+      return amount;
+    };
+    
+    // Find the earliest date from recurring transactions (prefer last_transaction_date over start_date)
     const now = new Date();
+    let earliestDate: Date | null = null;
+    
+    recurring.forEach((r: any) => {
+      // Prefer last_transaction_date as it indicates actual activity
+      const dateToUse = r.last_transaction_date ? new Date(r.last_transaction_date) : 
+                        r.start_date ? new Date(r.start_date) : null;
+      
+      if (dateToUse) {
+        if (!earliestDate || dateToUse < earliestDate) {
+          earliestDate = dateToUse;
+        }
+      }
+    });
+    
+    // If no dates found, default to last 3 months
+    if (!earliestDate) {
+      earliestDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    }
+    
+    // Calculate the number of months to show (from earliest date to now)
+    const monthsDiff = (now.getFullYear() - earliestDate.getFullYear()) * 12 + 
+                       (now.getMonth() - earliestDate.getMonth());
+    const numMonths = Math.min(Math.max(monthsDiff + 1, 1), 12); // Show at least 1 month, max 12
+    
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const chartData = [];
     
-    for (let i = 6; i >= 0; i--) {
+    // Generate chart data from earliest month to current month
+    for (let i = numMonths - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthName = months[date.getMonth()];
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
       
-      // Calculate subscriptions and bills for this month
+      // Calculate subscriptions and bills for this month using the same classification logic
       const subscriptions = recurring
-        .filter(r => r.is_subscription)
-        .reduce((sum, r) => {
-          const freqLower = (r.frequency || 'monthly').toLowerCase();
-          // For monthly breakdown, we need to calculate how much occurs in a month
-          let monthlyAmount = r.expected_amount || 0;
-          if (freqLower.includes('weekly')) {
-            monthlyAmount = (r.expected_amount || 0) * 4.33; // Average weeks per month
-          } else if (freqLower.includes('biweekly')) {
-            monthlyAmount = (r.expected_amount || 0) * 2.17; // Average biweekly periods per month
-          } else if (freqLower.includes('quarterly')) {
-            monthlyAmount = (r.expected_amount || 0) / 3;
-          } else if (freqLower.includes('annually') || freqLower.includes('yearly')) {
-            monthlyAmount = (r.expected_amount || 0) / 12;
-          }
-          return sum + monthlyAmount;
-        }, 0);
+        .filter(r => isSubscription(r))
+        .reduce((sum, r) => sum + getAmountForMonth(r, monthStart, monthEnd), 0);
       
       const bills = recurring
-        .filter(r => !r.is_subscription)
-        .reduce((sum, r) => {
-          const freqLower = (r.frequency || 'monthly').toLowerCase();
-          let monthlyAmount = r.expected_amount || 0;
-          if (freqLower.includes('weekly')) {
-            monthlyAmount = (r.expected_amount || 0) * 4.33;
-          } else if (freqLower.includes('biweekly')) {
-            monthlyAmount = (r.expected_amount || 0) * 2.17;
-          } else if (freqLower.includes('quarterly')) {
-            monthlyAmount = (r.expected_amount || 0) / 3;
-          } else if (freqLower.includes('annually') || freqLower.includes('yearly')) {
-            monthlyAmount = (r.expected_amount || 0) / 12;
-          }
-          return sum + monthlyAmount;
-        }, 0);
+        .filter(r => !isSubscription(r) && r.transaction_type === 'expense')
+        .reduce((sum, r) => sum + getAmountForMonth(r, monthStart, monthEnd), 0);
       
+      // Only add months that have actual spending data
+      if (subscriptions > 0 || bills > 0) {
+        chartData.push({
+          month: monthName,
+          subscriptions,
+          bills,
+        });
+      }
+    }
+    
+    // If no data, show at least the current month
+    if (chartData.length === 0) {
+      const currentMonthName = months[now.getMonth()];
       chartData.push({
-        month: monthName,
-        subscriptions,
-        bills,
+        month: currentMonthName,
+        subscriptions: 0,
+        bills: 0,
       });
     }
     
@@ -719,7 +896,9 @@ const Recurring = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="month" stroke="#888" fontSize={12} />
                 <YAxis stroke="#888" fontSize={12} />
-                <Tooltip />
+                <Tooltip 
+                  formatter={(value: number) => `$${value.toFixed(2)}`}
+                />
                 <Legend />
                 <Bar dataKey="subscriptions" fill="#3b82f6" name="Subscriptions" />
                 <Bar dataKey="bills" fill="#ef4444" name="Bills & Utilities" />
