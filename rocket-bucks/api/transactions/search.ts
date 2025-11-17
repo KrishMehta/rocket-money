@@ -39,6 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       max_amount,
       limit = 100,
       offset = 0,
+      sort_by = 'date',
+      sort_order = 'desc',
     } = req.method === 'GET' ? req.query : req.body;
 
     // Start building query
@@ -114,8 +116,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Order and paginate
+    const ascending = sort_order === 'asc' || sort_order === 'ascending';
+    const orderBy = sort_by || 'date';
+    
     query = query
-      .order('date', { ascending: false })
+      .order(orderBy, { ascending })
       .range(Number(offset), Number(offset) + Number(limit) - 1);
 
     const { data: transactions, error, count } = await query;

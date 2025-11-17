@@ -259,6 +259,8 @@ export const api = {
     max_amount?: number;
     limit?: number;
     offset?: number;
+    sort_by?: string;
+    sort_order?: string;
   }): Promise<{ transactions: any[]; count: number }> => {
     const queryParams = new URLSearchParams();
     if (filters) {

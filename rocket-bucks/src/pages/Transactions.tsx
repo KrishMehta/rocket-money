@@ -16,6 +16,8 @@ const Transactions = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedAccount, setSelectedAccount] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
@@ -110,6 +112,10 @@ const Transactions = () => {
         }
       }
       
+      // Add sorting
+      filters.sort_by = sortBy;
+      filters.sort_order = sortOrder;
+      
       const result = await api.searchTransactions(filters);
       setTransactions(result.transactions || []);
       setTotalCount(result.count || 0);
@@ -119,7 +125,7 @@ const Transactions = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, selectedCategory, selectedAccount, dateFilter, currentPage, itemsPerPage]);
+  }, [searchTerm, selectedCategory, selectedAccount, dateFilter, sortBy, sortOrder, currentPage, itemsPerPage]);
 
   // Load accounts and categories for filters (only once)
   useEffect(() => {
@@ -233,9 +239,23 @@ const Transactions = () => {
             <span>📥</span>
             Export
           </button>
-          <button className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
-            Sort by date ▼
-          </button>
+          <select
+            value={`${sortBy}-${sortOrder}`}
+            onChange={(e) => {
+              const [newSortBy, newSortOrder] = e.target.value.split('-');
+              setSortBy(newSortBy);
+              setSortOrder(newSortOrder);
+              setCurrentPage(0);
+            }}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
+          >
+            <option value="date-desc">Date (Newest First)</option>
+            <option value="date-asc">Date (Oldest First)</option>
+            <option value="amount-desc">Amount (High to Low)</option>
+            <option value="amount-asc">Amount (Low to High)</option>
+            <option value="name-asc">Name (A to Z)</option>
+            <option value="name-desc">Name (Z to A)</option>
+          </select>
         </div>
       </div>
 

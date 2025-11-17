@@ -1394,6 +1394,8 @@ app.get('/api/transactions/search', async (req, res) => {
       max_amount,
       limit = 100,
       offset = 0,
+      sort_by = 'date',
+      sort_order = 'desc',
     } = req.query;
 
     // Start building query
@@ -1468,8 +1470,11 @@ app.get('/api/transactions/search', async (req, res) => {
     }
 
     // Order and paginate
+    const ascending = sort_order === 'asc' || sort_order === 'ascending';
+    const orderBy = sort_by || 'date';
+    
     query = query
-      .order('date', { ascending: false })
+      .order(orderBy, { ascending })
       .range(Number(offset), Number(offset) + Number(limit) - 1);
 
     const { data: transactions, error, count } = await query;
