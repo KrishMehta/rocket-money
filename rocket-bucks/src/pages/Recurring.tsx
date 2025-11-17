@@ -472,8 +472,9 @@ const Recurring = () => {
   };
 
   const renderCalendar = () => {
-    const year = 2025;
-    const month = 9; // October (0-indexed)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // Current month (0-indexed)
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
     
@@ -481,20 +482,42 @@ const Recurring = () => {
     const prevMonthDays = firstDay === 0 ? 6 : firstDay - 1; // Adjust for Monday start
     
     // Previous month days
+    const prevMonth = month === 0 ? 11 : month - 1;
+    const prevYear = month === 0 ? year - 1 : year;
+    const daysInPrevMonth = getDaysInMonth(prevYear, prevMonth);
+    
     for (let i = prevMonthDays - 1; i >= 0; i--) {
-      const prevMonthDate = new Date(year, month, -i);
-      days.push({ date: prevMonthDate.getDate(), currentMonth: false });
+      const date = daysInPrevMonth - i;
+      days.push({ 
+        date, 
+        currentMonth: false,
+        month: prevMonth,
+        year: prevYear
+      });
     }
     
     // Current month days
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push({ date: i, currentMonth: true });
+      days.push({ 
+        date: i, 
+        currentMonth: true,
+        month: month,
+        year: year
+      });
     }
     
     // Next month days to fill the grid
     const remainingDays = 42 - days.length; // 6 rows * 7 days
+    const nextMonth = month === 11 ? 0 : month + 1;
+    const nextYear = month === 11 ? year + 1 : year;
+    
     for (let i = 1; i <= remainingDays; i++) {
-      days.push({ date: i, currentMonth: false });
+      days.push({ 
+        date: i, 
+        currentMonth: false,
+        month: nextMonth,
+        year: nextYear
+      });
     }
     
     return days;
@@ -671,7 +694,9 @@ const Recurring = () => {
                 {/* Mini Calendar */}
                 <div className="bg-white rounded-2xl shadow-sm p-6">
                   <div className="text-center mb-4">
-                    <h3 className="text-lg font-bold text-gray-900">October 2025</h3>
+                    <h3 className="text-lg font-bold text-gray-900">
+                      {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    </h3>
                   </div>
                   <div className="grid grid-cols-7 gap-1 mb-2">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
@@ -682,8 +707,18 @@ const Recurring = () => {
                   </div>
                   <div className="grid grid-cols-7 gap-1">
                     {renderCalendar().slice(0, 35).map((day, index) => {
-                      const events = calendarEvents.filter(e => e.date === day.date && day.currentMonth);
-                      const isToday = day.date === 29 && day.currentMonth;
+                      const now = new Date();
+                      const isToday = day.currentMonth && 
+                                       day.date === now.getDate() && 
+                                       day.month === now.getMonth() && 
+                                       day.year === now.getFullYear();
+                      
+                      // Match events by date, month, and year
+                      const events = calendarEvents.filter(e => 
+                        e.date === day.date && 
+                        e.month === day.month && 
+                        e.year === day.year
+                      );
                       
                       return (
                         <div
@@ -714,7 +749,9 @@ const Recurring = () => {
               <div className="flex justify-between items-center mb-6">
                 <div className="flex items-center gap-4">
                   <button className="text-gray-400 hover:text-gray-600">‹</button>
-                  <h2 className="text-xl font-bold text-gray-900">October 2025</h2>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </h2>
                   <button className="text-gray-400 hover:text-gray-600">›</button>
                 </div>
               </div>
@@ -729,7 +766,12 @@ const Recurring = () => {
 
               <div className="grid grid-cols-7 gap-2">
                 {renderCalendar().map((day, index) => {
-                  const events = calendarEvents.filter(e => e.date === day.date && day.currentMonth);
+                  // Match events by date, month, and year
+                  const events = calendarEvents.filter(e => 
+                    e.date === day.date && 
+                    e.month === day.month && 
+                    e.year === day.year
+                  );
                   const totalAmount = events.reduce((sum, e) => sum + e.amount, 0);
                   
                   return (
