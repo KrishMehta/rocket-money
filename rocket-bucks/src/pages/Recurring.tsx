@@ -9,10 +9,30 @@ const Recurring = () => {
   const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
   const [monthlyData, setMonthlyData] = useState<any[]>([]);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'type' | 'name' | 'amount' | 'due'>('type');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
 
   useEffect(() => {
     loadRecurringData();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showSortDropdown && !target.closest('.sort-dropdown-container')) {
+        setShowSortDropdown(false);
+      }
+    };
+
+    if (showSortDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showSortDropdown]);
 
   const loadRecurringData = async () => {
     try {
@@ -317,6 +337,56 @@ const Recurring = () => {
     setMonthlyData(chartData);
   };
 
+  // Helper function to filter items by search term
+  const filterBySearch = (items: any[]) => {
+    if (!searchTerm.trim()) return items;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return items.filter(item => {
+      const name = (item.name || '').toLowerCase();
+      const merchantName = (item.merchant_name || '').toLowerCase();
+      const frequency = (item.frequency || '').toLowerCase();
+      return name.includes(searchLower) || 
+             merchantName.includes(searchLower) || 
+             frequency.includes(searchLower);
+    });
+  };
+
+  // Helper function to sort items
+  const sortItems = (items: any[]) => {
+    const sorted = [...items];
+    
+    switch (sortBy) {
+      case 'name':
+        sorted.sort((a, b) => {
+          const nameA = (a.name || '').toLowerCase();
+          const nameB = (b.name || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+        break;
+      case 'amount':
+        sorted.sort((a, b) => {
+          const amountA = a.expected_amount || 0;
+          const amountB = b.expected_amount || 0;
+          return amountB - amountA; // Descending order
+        });
+        break;
+      case 'due':
+        sorted.sort((a, b) => {
+          const daysA = a.days_until_due ?? Infinity;
+          const daysB = b.days_until_due ?? Infinity;
+          return daysA - daysB; // Ascending order (sooner due dates first)
+        });
+        break;
+      case 'type':
+      default:
+        // Keep original order (already grouped by type)
+        break;
+    }
+    
+    return sorted;
+  };
+
   const groupByType = () => {
     // Common subscription merchant names/keywords for fallback classification
     const subscriptionKeywords = [
@@ -340,9 +410,19 @@ const Recurring = () => {
       return subscriptionKeywords.some(keyword => merchantName.includes(keyword));
     };
     
-    const subscriptions = recurringTransactions.filter(r => isSubscription(r));
-    const bills = recurringTransactions.filter(r => !isSubscription(r) && r.transaction_type === 'expense');
-    const creditCards = recurringTransactions.filter(r => r.name?.toLowerCase().includes('credit card'));
+    let subscriptions = recurringTransactions.filter(r => isSubscription(r));
+    let bills = recurringTransactions.filter(r => !isSubscription(r) && r.transaction_type === 'expense');
+    let creditCards = recurringTransactions.filter(r => r.name?.toLowerCase().includes('credit card'));
+    
+    // Apply search filter
+    subscriptions = filterBySearch(subscriptions);
+    bills = filterBySearch(bills);
+    creditCards = filterBySearch(creditCards);
+    
+    // Apply sorting
+    subscriptions = sortItems(subscriptions);
+    bills = sortItems(bills);
+    creditCards = sortItems(creditCards);
     
     return { subscriptions, bills, creditCards };
   };
@@ -700,13 +780,68 @@ const Recurring = () => {
                   <input
                     type="text"
                     placeholder="Search bills and subscriptions..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                   />
                   <span className="absolute left-3 top-3.5 text-gray-400">🔍</span>
                 </div>
-                <button className="px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
-                  Sort by type ▼
-                </button>
+                <div className="relative sort-dropdown-container">
+                  <button 
+                    onClick={() => setShowSortDropdown(!showSortDropdown)}
+                    className="px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    Sort by {sortBy === 'type' ? 'type' : sortBy === 'name' ? 'name' : sortBy === 'amount' ? 'amount' : 'due'} ▼
+                  </button>
+                  {showSortDropdown && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 sort-dropdown-container">
+                      <button
+                        onClick={() => {
+                          setSortBy('type');
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
+                          sortBy === 'type' ? 'bg-gray-50 font-medium' : ''
+                        }`}
+                      >
+                        Type
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortBy('name');
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
+                          sortBy === 'name' ? 'bg-gray-50 font-medium' : ''
+                        }`}
+                      >
+                        Name
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortBy('amount');
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
+                          sortBy === 'amount' ? 'bg-gray-50 font-medium' : ''
+                        }`}
+                      >
+                        Amount
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortBy('due');
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
+                          sortBy === 'due' ? 'bg-gray-50 font-medium' : ''
+                        }`}
+                      >
+                        Due Date
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
           {/* Subscriptions */}
