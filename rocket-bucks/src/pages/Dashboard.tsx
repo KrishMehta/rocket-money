@@ -89,9 +89,11 @@ const Dashboard = () => {
       for (let i = 4; i >= 0; i--) {
         const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthName = months[date.getMonth()];
+        // Round to 2 decimal places to avoid floating point precision issues
+        const amount = monthlyData[monthName] || 0;
         chartData.push({
           month: monthName,
-          amount: monthlyData[monthName] || 0,
+          amount: Math.round(amount * 100) / 100,
         });
       }
 
@@ -245,7 +247,9 @@ const Dashboard = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="month" stroke="#888" />
                   <YAxis stroke="#888" />
-                  <Tooltip />
+                  <Tooltip 
+                    formatter={(value: number) => `$${value.toFixed(2)}`}
+                  />
                   <Line 
                     type="monotone" 
                     dataKey="amount" 
