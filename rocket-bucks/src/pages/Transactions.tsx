@@ -131,7 +131,16 @@ const Transactions = () => {
         ]);
 
         setAccounts(accountsData.accounts || []);
-        setCategories(categoriesData.categories || []);
+        
+        // Deduplicate categories by name (keep first occurrence)
+        const uniqueCategories = categoriesData.categories?.reduce((acc: any[], cat: any) => {
+          if (!acc.find(c => c.name === cat.name)) {
+            acc.push(cat);
+          }
+          return acc;
+        }, []) || [];
+        
+        setCategories(uniqueCategories);
       } catch (error) {
         console.error('Error loading filter data:', error);
       }

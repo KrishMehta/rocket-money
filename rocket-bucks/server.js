@@ -1617,11 +1617,28 @@ app.get('/api/categories', async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Get categories (system categories + user's custom categories)
+    // Get unique categories actually used in user's transactions
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('user_category_name, plaid_primary_category')
+      .eq('user_id', user.id);
+
+    // Extract unique category names from transactions
+    const usedCategories = new Set();
+    transactions?.forEach(tx => {
+      if (tx.user_category_name) usedCategories.add(tx.user_category_name);
+      if (tx.plaid_primary_category) usedCategories.add(tx.plaid_primary_category);
+    });
+
+    // Add Uncategorized if there are any uncategorized transactions
+    usedCategories.add('Uncategorized');
+
+    // Get full category info for the used categories
     const { data: categories, error: categoriesError } = await supabase
       .from('transaction_categories')
       .select('*')
       .or(`user_id.eq.${user.id},is_system.eq.true`)
+      .in('name', Array.from(usedCategories))
       .order('name', { ascending: true });
 
     if (categoriesError) {
@@ -1629,7 +1646,18 @@ app.get('/api/categories', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch categories' });
     }
 
-    res.json({ categories: categories || [] });
+    // Deduplicate by name (keep first occurrence)
+    const uniqueCategories = [];
+    const seenNames = new Set();
+    
+    for (const cat of (categories || [])) {
+      if (!seenNames.has(cat.name)) {
+        seenNames.add(cat.name);
+        uniqueCategories.push(cat);
+      }
+    }
+
+    res.json({ categories: uniqueCategories });
   } catch (error) {
     console.error('Error fetching categories:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch categories' });
