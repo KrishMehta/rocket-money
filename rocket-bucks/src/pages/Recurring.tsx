@@ -58,6 +58,32 @@ const Recurring = () => {
     }
   };
 
+  // Helper function to calculate yearly amount based on frequency
+  const calculateYearlyAmount = (amount: number, frequency: string): number => {
+    if (!amount || !frequency) return 0;
+    
+    const freqLower = frequency.toLowerCase();
+    
+    if (freqLower.includes('daily')) {
+      return amount * 365;
+    } else if (freqLower.includes('weekly')) {
+      return amount * 52;
+    } else if (freqLower.includes('biweekly') || freqLower.includes('bi-weekly')) {
+      return amount * 26;
+    } else if (freqLower.includes('monthly') || freqLower.includes('approximately_monthly')) {
+      return amount * 12;
+    } else if (freqLower.includes('bimonthly') || freqLower.includes('bi-monthly')) {
+      return amount * 6;
+    } else if (freqLower.includes('quarterly')) {
+      return amount * 4;
+    } else if (freqLower.includes('annually') || freqLower.includes('yearly')) {
+      return amount;
+    } else {
+      // Default to monthly if frequency is unknown
+      return amount * 12;
+    }
+  };
+
   const calculateMonthlyBreakdown = (recurring: any[]) => {
     // Create last 6 months of data
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -71,11 +97,38 @@ const Recurring = () => {
       // Calculate subscriptions and bills for this month
       const subscriptions = recurring
         .filter(r => r.is_subscription)
-        .reduce((sum, r) => sum + (r.expected_amount || 0), 0);
+        .reduce((sum, r) => {
+          const freqLower = (r.frequency || 'monthly').toLowerCase();
+          // For monthly breakdown, we need to calculate how much occurs in a month
+          let monthlyAmount = r.expected_amount || 0;
+          if (freqLower.includes('weekly')) {
+            monthlyAmount = (r.expected_amount || 0) * 4.33; // Average weeks per month
+          } else if (freqLower.includes('biweekly')) {
+            monthlyAmount = (r.expected_amount || 0) * 2.17; // Average biweekly periods per month
+          } else if (freqLower.includes('quarterly')) {
+            monthlyAmount = (r.expected_amount || 0) / 3;
+          } else if (freqLower.includes('annually') || freqLower.includes('yearly')) {
+            monthlyAmount = (r.expected_amount || 0) / 12;
+          }
+          return sum + monthlyAmount;
+        }, 0);
       
       const bills = recurring
         .filter(r => !r.is_subscription)
-        .reduce((sum, r) => sum + (r.expected_amount || 0), 0);
+        .reduce((sum, r) => {
+          const freqLower = (r.frequency || 'monthly').toLowerCase();
+          let monthlyAmount = r.expected_amount || 0;
+          if (freqLower.includes('weekly')) {
+            monthlyAmount = (r.expected_amount || 0) * 4.33;
+          } else if (freqLower.includes('biweekly')) {
+            monthlyAmount = (r.expected_amount || 0) * 2.17;
+          } else if (freqLower.includes('quarterly')) {
+            monthlyAmount = (r.expected_amount || 0) / 3;
+          } else if (freqLower.includes('annually') || freqLower.includes('yearly')) {
+            monthlyAmount = (r.expected_amount || 0) / 12;
+          }
+          return sum + monthlyAmount;
+        }, 0);
       
       chartData.push({
         month: monthName,
@@ -484,7 +537,7 @@ const Recurring = () => {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">{subscriptions.length} Subscription{subscriptions.length !== 1 ? 's' : ''}</h3>
               <p className="text-sm text-gray-600">
-                You spend ${(subscriptions.reduce((sum, s) => sum + (s.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+                You spend ${subscriptions.reduce((sum, s) => sum + calculateYearlyAmount(s.expected_amount || 0, s.frequency || 'monthly'), 0).toFixed(2)}/yearly
               </p>
             </div>
 
@@ -542,7 +595,7 @@ const Recurring = () => {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">{bills.length} Bill{bills.length !== 1 ? 's' : ''} / Utilit{bills.length !== 1 ? 'ies' : 'y'}</h3>
               <p className="text-sm text-gray-600">
-                You spend ${(bills.reduce((sum, b) => sum + (b.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+                You spend ${bills.reduce((sum, b) => sum + calculateYearlyAmount(b.expected_amount || 0, b.frequency || 'monthly'), 0).toFixed(2)}/yearly
               </p>
             </div>
 
@@ -600,7 +653,7 @@ const Recurring = () => {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">{creditCards.length} Credit Card Payment{creditCards.length !== 1 ? 's' : ''}</h3>
               <p className="text-sm text-gray-600">
-                You spend ${(creditCards.reduce((sum, c) => sum + (c.expected_amount || 0), 0) * 12).toFixed(2)}/yearly
+                You spend ${creditCards.reduce((sum, c) => sum + calculateYearlyAmount(c.expected_amount || 0, c.frequency || 'monthly'), 0).toFixed(2)}/yearly
               </p>
             </div>
 
