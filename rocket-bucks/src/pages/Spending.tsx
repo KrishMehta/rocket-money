@@ -214,7 +214,12 @@ const Spending = () => {
     const merchantTotals: { [key: string]: { amount: number; count: number; amounts: number[] } } = {};
     
     txData.forEach((tx: any) => {
-      if (tx.transaction_type === 'expense' && tx.amount > 0) {
+      const categoryName = getCategoryName(tx);
+      // Exclude Income and Transfer categories, same as spending calculation
+      if (tx.transaction_type === 'expense' && 
+          tx.amount > 0 && 
+          categoryName !== 'Income' && 
+          categoryName !== 'Transfer') {
         const merchant = tx.merchant_name || tx.name;
         if (!merchantTotals[merchant]) {
           merchantTotals[merchant] = { amount: 0, count: 0, amounts: [] };
@@ -240,7 +245,14 @@ const Spending = () => {
 
   const calculateLargestPurchases = (txData: any[]) => {
     const largest = txData
-      .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+      .filter((tx: any) => {
+        const categoryName = getCategoryName(tx);
+        // Exclude Income and Transfer categories, same as spending calculation
+        return tx.transaction_type === 'expense' && 
+               tx.amount > 0 && 
+               categoryName !== 'Income' && 
+               categoryName !== 'Transfer';
+      })
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 3)
       .map((tx: any) => ({
