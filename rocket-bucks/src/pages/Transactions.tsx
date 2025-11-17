@@ -10,6 +10,8 @@ const Transactions = () => {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [categorizing, setCategorizing] = useState(false);
+  const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -47,6 +49,33 @@ const Transactions = () => {
       }
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // Auto-categorize uncategorized transactions
+  const autoCategorizeTransactions = async () => {
+    try {
+      setCategorizing(true);
+      setCategorizeMessage(null);
+      console.log('🏷️  Auto-categorizing transactions...');
+      
+      const result = await api.autoCategorizeTransactions();
+      
+      console.log('✅ Transactions categorized:', result.message);
+      setCategorizeMessage(result.message);
+      
+      // Reload transactions after categorization
+      loadTransactionsFromDB();
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setCategorizeMessage(null);
+      }, 5000);
+    } catch (error: any) {
+      console.error('❌ Error categorizing transactions:', error);
+      setCategorizeMessage(error.message || 'Failed to categorize transactions');
+    } finally {
+      setCategorizing(false);
     }
   };
 
@@ -182,6 +211,15 @@ const Transactions = () => {
             <span className={syncing ? 'animate-spin' : ''}>🔄</span>
             {syncing ? 'Syncing...' : 'Sync from Plaid'}
           </button>
+          <button 
+            onClick={autoCategorizeTransactions}
+            disabled={categorizing}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            title="Automatically categorize uncategorized transactions"
+          >
+            <span>🏷️</span>
+            {categorizing ? 'Categorizing...' : 'Auto-Categorize'}
+          </button>
           <button className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2">
             <span>📥</span>
             Export
@@ -203,6 +241,49 @@ const Transactions = () => {
           <button 
             onClick={() => setSyncError(null)}
             className="text-red-400 hover:text-red-600"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Categorize Success/Error Message */}
+      {categorizeMessage && (
+        <div className={`mb-6 rounded-lg p-4 flex items-start gap-3 ${
+          categorizeMessage.includes('Failed') || categorizeMessage.includes('Error')
+            ? 'bg-red-50 border border-red-200'
+            : 'bg-green-50 border border-green-200'
+        }`}>
+          <span className={`text-xl ${
+            categorizeMessage.includes('Failed') || categorizeMessage.includes('Error')
+              ? 'text-red-500'
+              : 'text-green-500'
+          }`}>
+            {categorizeMessage.includes('Failed') || categorizeMessage.includes('Error') ? '⚠️' : '✅'}
+          </span>
+          <div className="flex-1">
+            <h3 className={`text-sm font-medium ${
+              categorizeMessage.includes('Failed') || categorizeMessage.includes('Error')
+                ? 'text-red-800'
+                : 'text-green-800'
+            }`}>
+              Auto-Categorization
+            </h3>
+            <p className={`text-sm mt-1 ${
+              categorizeMessage.includes('Failed') || categorizeMessage.includes('Error')
+                ? 'text-red-600'
+                : 'text-green-600'
+            }`}>
+              {categorizeMessage}
+            </p>
+          </div>
+          <button 
+            onClick={() => setCategorizeMessage(null)}
+            className={
+              categorizeMessage.includes('Failed') || categorizeMessage.includes('Error')
+                ? 'text-red-400 hover:text-red-600'
+                : 'text-green-400 hover:text-green-600'
+            }
           >
             ✕
           </button>

@@ -432,5 +432,28 @@ export const api = {
 
     return response.json();
   },
+
+  /**
+   * Auto-categorize uncategorized transactions
+   */
+  autoCategorizeTransactions: async (): Promise<{
+    success: boolean;
+    message: string;
+    total_checked: number;
+    categorized_count: number;
+    uncategorized_count: number;
+  }> => {
+    const response = await fetch(`${getApiUrl()}/transactions/auto-categorize`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to auto-categorize transactions');
+    }
+
+    return response.json();
+  },
 };
 

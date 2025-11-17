@@ -2,6 +2,7 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createSupabaseClient } from '../../lib/supabase';
 import { decrypt, isEncrypted } from '../../lib/encryption';
+import { autoCategorizeTransaction } from '../../lib/categorization';
 
 // Initialize Plaid client
 const configuration = new Configuration({
@@ -141,6 +142,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (response.data.transactions.length > 0) {
           const transactionsToInsert = response.data.transactions.map((tx: any) => {
             const dbAccountId = accountMap.get(tx.account_id);
+            
+            // Auto-categorize if Plaid didn't provide a category
+            const plaidCategory = tx.category?.[0] || null;
+            let userCategory = null;
+            
+            if (!plaidCategory) {
+              // Use our auto-categorization as fallback
+              const autoCategory = autoCategorizeTransaction(tx.name, tx.merchant_name);
+              if (autoCategory && autoCategory !== 'Uncategorized') {
+                userCategory = autoCategory;
+              }
+            }
+            
             return {
               user_id: user.id,
               account_id: dbAccountId,
@@ -152,8 +166,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               name: tx.name,
               // Plaid categorization
               plaid_category: tx.category || [],
-              plaid_primary_category: tx.category?.[0] || null,
+              plaid_primary_category: plaidCategory,
               plaid_detailed_category: tx.category ? tx.category.join(' > ') : null,
+              // User categorization (fallback when Plaid doesn't provide)
+              user_category_name: userCategory,
               // Merchant and location
               merchant_name: tx.merchant_name || null,
               location_city: tx.location?.city || null,

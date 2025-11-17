@@ -57,6 +57,38 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
+// Auto-categorization helper
+function autoCategorizeTransaction(transactionName, merchantName) {
+  const searchText = `${transactionName} ${merchantName || ''}`.toLowerCase();
+  
+  // Category mappings
+  const categoryMappings = [
+    { keywords: ['uber eats', 'doordash', 'grubhub', 'postmates'], category: 'Food and Drink' },
+    { keywords: ['mcdonalds', 'burger king', 'taco bell', 'chipotle', 'five guys', 'raising cane', 'starbucks', 'dunkin'], category: 'Restaurants' },
+    { keywords: ['whole foods', 'trader joe', 'safeway', 'kroger', 'grocery', 'supermarket'], category: 'Groceries' },
+    { keywords: ['uber', 'lyft', 'taxi', 'cab'], category: 'Transportation' },
+    { keywords: ['shell', 'chevron', 'exxon', 'mobil', 'gas', 'fuel'], category: 'Gas Stations' },
+    { keywords: ['amazon', 'ebay', 'target', 'walmart', 'best buy'], category: 'Shopping' },
+    { keywords: ['netflix', 'hulu', 'disney+', 'hbo', 'spotify', 'apple music'], category: 'Entertainment' },
+    { keywords: ['airbnb', 'hotel', 'marriott', 'hilton'], category: 'Hotels' },
+    { keywords: ['cvs', 'walgreens', 'pharmacy'], category: 'Pharmacy' },
+    { keywords: ['at&t', 'verizon', 't-mobile', 'comcast', 'xfinity'], category: 'Bills & Utilities' },
+    { keywords: ['zelle', 'venmo', 'paypal', 'transfer', 'payment'], category: 'Transfer' },
+    { keywords: ['interest', 'fee', 'overdraft', 'atm'], category: 'Bank Fees' },
+  ];
+  
+  // Check for matches
+  for (const mapping of categoryMappings) {
+    for (const keyword of mapping.keywords) {
+      if (searchText.includes(keyword)) {
+        return mapping.category;
+      }
+    }
+  }
+  
+  return 'Uncategorized';
+}
+
 // Helper function to calculate next due date based on frequency
 function calculateNextDueDate(lastDate, frequency) {
   if (!lastDate) return null;
@@ -1408,6 +1440,110 @@ app.get('/api/transactions/search', async (req, res) => {
   } catch (error) {
     console.error('Error searching transactions:', error);
     res.status(500).json({ error: error.message || 'Failed to search transactions' });
+  }
+});
+
+// Auto-categorize transactions endpoint
+app.post('/api/transactions/auto-categorize', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Get all uncategorized transactions
+    const { data: transactions, error: fetchError } = await supabase
+      .from('transactions')
+      .select('id, name, merchant_name, plaid_primary_category, user_category_name')
+      .eq('user_id', user.id)
+      .is('user_category_name', null);
+
+    if (fetchError) {
+      console.error('Error fetching transactions:', fetchError);
+      return res.status(500).json({ error: 'Failed to fetch transactions' });
+    }
+
+    if (!transactions || transactions.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: 'No transactions to categorize',
+        categorized_count: 0 
+      });
+    }
+
+    console.log(`🏷️  Auto-categorizing ${transactions.length} transactions for user ${user.id}`);
+
+    // Categorize each transaction
+    const updates = [];
+    let categorizedCount = 0;
+
+    for (const tx of transactions) {
+      // Skip if already has a Plaid category
+      if (tx.plaid_primary_category) {
+        continue;
+      }
+
+      // Get auto-generated category
+      const category = autoCategorizeTransaction(tx.name, tx.merchant_name);
+      
+      // Only update if we got a non-Uncategorized category
+      if (category && category !== 'Uncategorized') {
+        updates.push({
+          id: tx.id,
+          user_category_name: category,
+        });
+        categorizedCount++;
+      }
+    }
+
+    // Update transactions one by one (RLS requires proper user context)
+    if (updates.length > 0) {
+      let successCount = 0;
+      for (const update of updates) {
+        const { error: updateError } = await supabase
+          .from('transactions')
+          .update({ user_category_name: update.user_category_name })
+          .eq('id', update.id)
+          .eq('user_id', user.id); // Ensure RLS policy is satisfied
+
+        if (updateError) {
+          console.error(`Error updating transaction ${update.id}:`, updateError.message);
+        } else {
+          successCount++;
+        }
+      }
+
+      console.log(`✅ Successfully categorized ${successCount} of ${updates.length} transactions`);
+      categorizedCount = successCount; // Update the count to reflect actual successes
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully categorized ${categorizedCount} transaction${categorizedCount !== 1 ? 's' : ''}`,
+      total_checked: transactions.length,
+      categorized_count: categorizedCount,
+      uncategorized_count: transactions.length - categorizedCount,
+    });
+  } catch (error) {
+    console.error('❌ Error auto-categorizing transactions:', error);
+    res.status(500).json({ 
+      error: 'Failed to auto-categorize transactions',
+      details: error.message 
+    });
   }
 });
 
