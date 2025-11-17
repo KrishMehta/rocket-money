@@ -19,10 +19,17 @@ const Recurring = () => {
       setLoading(true);
       // Don't filter by active_only to see all recurring charges
       const { recurring } = await api.getRecurring({});
-      setRecurringTransactions(recurring || []);
+      
+      // Filter out interest payments
+      const filteredRecurring = (recurring || []).filter((r: any) => {
+        const name = (r.name || '').toLowerCase();
+        return !name.includes('interest') && !name.includes('interest payment');
+      });
+      
+      setRecurringTransactions(filteredRecurring);
       
       // Calculate monthly breakdown
-      calculateMonthlyBreakdown(recurring || []);
+      calculateMonthlyBreakdown(filteredRecurring);
     } catch (error) {
       console.error('Error loading recurring data:', error);
     } finally {
@@ -105,7 +112,11 @@ const Recurring = () => {
   // Calendar data - map recurring to calendar events
   const getCalendarEvents = () => {
     return recurringTransactions
-      .filter(r => r.next_due_date)
+      .filter(r => {
+        // Exclude interest payments
+        const name = (r.name || '').toLowerCase();
+        return r.next_due_date && !name.includes('interest') && !name.includes('interest payment');
+      })
       .map(r => {
         const date = new Date(r.next_due_date);
         return {
