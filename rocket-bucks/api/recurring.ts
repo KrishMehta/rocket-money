@@ -62,10 +62,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Calculate days until due for each
     const recurringWithDue = (recurring || []).map((rt: any) => {
       if (!rt.next_due_date) return rt;
+      
+      // Normalize dates to midnight for accurate day calculations
       const today = new Date();
+      const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
       const dueDate = new Date(rt.next_due_date);
-      const diffTime = dueDate.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const dueDateMidnight = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      
+      const diffTime = dueDateMidnight.getTime() - todayMidnight.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       
       return {
         ...rt,

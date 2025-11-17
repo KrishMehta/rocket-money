@@ -442,13 +442,14 @@ const Recurring = () => {
   const { next7Days, comingLater } = getUpcomingCharges();
 
   // Calendar data - map recurring to calendar events
+  // Use the exact same transactions that appear in the "Upcoming" list
+  // This ensures calendar matches exactly what's shown in the "in x days" display
   const getCalendarEvents = () => {
-    return recurringTransactions
-      .filter(r => {
-        // Exclude interest payments
-        const name = (r.name || '').toLowerCase();
-        return r.next_due_date && !name.includes('interest') && !name.includes('interest payment');
-      })
+    // Combine next7Days and comingLater to get all upcoming charges
+    const allUpcoming = [...next7Days, ...comingLater];
+    
+    return allUpcoming
+      .filter(r => r.next_due_date) // Ensure next_due_date exists
       .map(r => {
         const date = new Date(r.next_due_date);
         return {
