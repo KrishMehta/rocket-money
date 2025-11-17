@@ -443,19 +443,27 @@ const Recurring = () => {
 
   // Calendar data - map recurring to calendar events
   // Use the exact same transactions that appear in the "Upcoming" list
-  // This ensures calendar matches exactly what's shown in the "in x days" display
+  // Calculate date from days_until_due to ensure it matches the "in x days" display
   const getCalendarEvents = () => {
     // Combine next7Days and comingLater to get all upcoming charges
     const allUpcoming = [...next7Days, ...comingLater];
     
+    // Get today's date normalized to midnight
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
     return allUpcoming
-      .filter(r => r.next_due_date) // Ensure next_due_date exists
+      .filter(r => r.days_until_due !== undefined && r.days_until_due >= 0) // Ensure days_until_due exists
       .map(r => {
-        const date = new Date(r.next_due_date);
+        // Calculate the due date by adding days_until_due to today
+        // This ensures the calendar date matches exactly what's shown in "in x days"
+        const dueDate = new Date(todayMidnight);
+        dueDate.setDate(todayMidnight.getDate() + r.days_until_due);
+        
         return {
-          date: date.getDate(),
-          month: date.getMonth(),
-          year: date.getFullYear(),
+          date: dueDate.getDate(),
+          month: dueDate.getMonth(),
+          year: dueDate.getFullYear(),
           name: r.name,
           amount: r.expected_amount || 0,
         };
