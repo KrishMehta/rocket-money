@@ -334,9 +334,18 @@ const Spending = () => {
         .reduce((sum: number, tx: any) => sum + tx.amount, 0);
       const prevBills = Math.round(prevBillsRaw * 100) / 100;
       
-      const prevSpending = prevTx
-        .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+      // Previous period spending should use the same filter as current period
+      // (exclude Income and Transfer categories)
+      const prevSpendingRaw = prevTx
+        .filter((tx: any) => {
+          const categoryName = getCategoryName(tx);
+          return tx.transaction_type === 'expense' && 
+                 tx.amount > 0 && 
+                 categoryName !== 'Income' && 
+                 categoryName !== 'Transfer';
+        })
         .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+      const prevSpending = Math.round(prevSpendingRaw * 100) / 100;
 
       setSummaryData({
         income,
