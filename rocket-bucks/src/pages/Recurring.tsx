@@ -88,8 +88,30 @@ const Recurring = () => {
   };
 
   const groupByType = () => {
-    const subscriptions = recurringTransactions.filter(r => r.is_subscription);
-    const bills = recurringTransactions.filter(r => !r.is_subscription && r.transaction_type === 'expense');
+    // Common subscription merchant names/keywords for fallback classification
+    const subscriptionKeywords = [
+      'cursor', 'openai', 'apple', 'squarespace', 'workspace', 'worksp', 'spotify', 'netflix',
+      'disney', 'hulu', 'amazon prime', 'youtube premium', 'adobe', 'microsoft',
+      'google', 'dropbox', 'slack', 'zoom', 'notion', 'figma', 'canva', 'github',
+      'gitlab', 'atlassian', 'jira', 'confluence', 'salesforce', 'hubspot', 'zendesk',
+      'intercom', 'mailchimp', 'sendgrid', 'twilio', 'stripe', 'paypal', 'shopify',
+      'wix', 'wordpress', 'webflow', 'framer', 'linear', 'vercel', 'netlify',
+      'cloudflare', 'aws', 'azure', 'gcp', 'digitalocean', 'heroku', 'mongodb',
+      'redis', 'elastic', 'datadog', 'sentry', 'new relic', 'loggly', 'papertrail'
+    ];
+    
+    // Helper function to check if a transaction is a subscription
+    const isSubscription = (r: any) => {
+      // First check the is_subscription flag
+      if (r.is_subscription) return true;
+      
+      // Fallback: check merchant name for subscription keywords
+      const merchantName = (r.name || r.merchant_name || '').toLowerCase();
+      return subscriptionKeywords.some(keyword => merchantName.includes(keyword));
+    };
+    
+    const subscriptions = recurringTransactions.filter(r => isSubscription(r));
+    const bills = recurringTransactions.filter(r => !isSubscription(r) && r.transaction_type === 'expense');
     const creditCards = recurringTransactions.filter(r => r.name?.toLowerCase().includes('credit card'));
     
     return { subscriptions, bills, creditCards };

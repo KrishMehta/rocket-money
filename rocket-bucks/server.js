@@ -954,10 +954,31 @@ app.post('/api/exchange_public_token', async (req, res) => {
           const dbAccountId = accountMap.get(stream.account_id);
           if (!dbAccountId) continue;
 
-          // Determine if it's a subscription based on category
-          const isSubscription = stream.category?.includes('Subscription') || 
-                                 stream.category?.includes('Software') ||
-                                 stream.category?.includes('Streaming');
+          // Determine if it's a subscription based on category or merchant name
+          const merchantName = (stream.merchant_name || stream.description || '').toLowerCase();
+          const categoryMatch = stream.category?.some((cat) => 
+            cat.toLowerCase().includes('subscription') || 
+            cat.toLowerCase().includes('software') ||
+            cat.toLowerCase().includes('streaming')
+          );
+          
+          // Common subscription merchant names/keywords
+          const subscriptionKeywords = [
+            'cursor', 'openai', 'apple', 'squarespace', 'workspace', 'worksp', 'spotify', 'netflix',
+            'disney', 'hulu', 'amazon prime', 'youtube premium', 'adobe', 'microsoft',
+            'google', 'dropbox', 'slack', 'zoom', 'notion', 'figma', 'canva', 'github',
+            'gitlab', 'atlassian', 'jira', 'confluence', 'salesforce', 'hubspot', 'zendesk',
+            'intercom', 'mailchimp', 'sendgrid', 'twilio', 'stripe', 'paypal', 'shopify',
+            'wix', 'wordpress', 'webflow', 'framer', 'linear', 'vercel', 'netlify',
+            'cloudflare', 'aws', 'azure', 'gcp', 'digitalocean', 'heroku', 'mongodb',
+            'redis', 'elastic', 'datadog', 'sentry', 'new relic', 'loggly', 'papertrail'
+          ];
+          
+          const merchantMatch = subscriptionKeywords.some(keyword => 
+            merchantName.includes(keyword)
+          );
+          
+          const isSubscription = categoryMatch || merchantMatch;
 
           recurringToInsert.push({
             user_id: user.id,
