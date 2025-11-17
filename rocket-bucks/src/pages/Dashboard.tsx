@@ -34,10 +34,18 @@ const Dashboard = () => {
     try {
       setLoading(true);
       
+      // Calculate date range for this month (same logic as Transactions page)
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
       // Fetch all data in parallel
       const [accountsRes, transactionsRes, recurringRes] = await Promise.all([
         api.getAccounts(),
-        api.searchTransactions({ limit: 10 }),
+        api.searchTransactions({ 
+          limit: 10,
+          start_date: firstDayOfMonth.toISOString().split('T')[0],
+          end_date: now.toISOString().split('T')[0],
+        }),
         api.getRecurring({ upcoming_only: true }), // Don't filter by active_only
       ]);
 
