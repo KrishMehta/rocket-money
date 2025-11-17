@@ -602,7 +602,7 @@ const Transactions = () => {
                             setEditingTransaction(transaction.id);
                           }}
                           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                          title="Edit category"
+                          title="Edit transaction"
                           disabled={editingTransaction === transaction.id}
                         >
                         ✏️
