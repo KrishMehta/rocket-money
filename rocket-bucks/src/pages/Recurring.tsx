@@ -636,30 +636,6 @@ const Recurring = () => {
 
           {/* Sidebar */}
           <div className="space-y-6">
-          {/* My requests */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
-                1
-              </span>
-              <h3 className="text-lg font-bold text-gray-900">My requests</h3>
-            </div>
-            <p className="text-sm text-gray-600 mb-4">
-              Below are your active bill negotiations and cancellations that our concierge team is working on for you.
-            </p>
-            <div className="bg-blue-50 rounded-lg p-4 flex gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                AT
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900 mb-1">Bill Negotiation</p>
-                <p className="text-xs text-gray-600">
-                  We are currently working on your AT&T bill negotiation. You'll receive an update once it's complete.
-                </p>
-              </div>
-            </div>
-          </div>
-
           {/* Monthly Breakdown */}
           <div className="bg-white rounded-2xl shadow-sm p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Monthly Breakdown</h3>
