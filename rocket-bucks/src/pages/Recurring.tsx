@@ -628,10 +628,6 @@ const Recurring = () => {
               </div>
             )}
           </div>
-
-          <button className="w-full py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border border-gray-300">
-            Show 5 Inactive
-          </button>
           </div>
 
           {/* Sidebar */}
