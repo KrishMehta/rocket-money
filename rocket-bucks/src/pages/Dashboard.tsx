@@ -49,9 +49,14 @@ const Dashboard = () => {
       setTotalTransactions(transactionsRes.count || 0);
 
       // Set upcoming charges (next 30 days)
-      const next30Days = recurringRes.recurring?.filter((r: any) => 
-        r.days_until_due >= 0 && r.days_until_due <= 30
-      ) || [];
+      // Filter out interest payments (same as Recurring page)
+      const next30Days = recurringRes.recurring?.filter((r: any) => {
+        const name = (r.name || '').toLowerCase();
+        return r.days_until_due >= 0 && 
+               r.days_until_due <= 30 &&
+               !name.includes('interest') && 
+               !name.includes('interest payment');
+      }) || [];
       setUpcomingCharges(next30Days);
 
       // Calculate monthly spending trends (last 6 months)
