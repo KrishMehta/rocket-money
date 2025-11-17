@@ -18,6 +18,14 @@ const Dashboard = () => {
     'there';
   const [totalTransactions, setTotalTransactions] = useState(0);
 
+  // Helper function to get category name (same as Spending page)
+  const getCategoryName = (transaction: any) => {
+    return transaction.user_category_name ||
+           transaction.transaction_categories?.name ||
+           transaction.plaid_primary_category ||
+           'Uncategorized';
+  };
+
   useEffect(() => {
     loadDashboardData();
   }, []);
@@ -47,10 +55,8 @@ const Dashboard = () => {
       setUpcomingCharges(next30Days);
 
       // Calculate monthly spending trends (last 6 months)
-      calculateSpendingTrends(transactionsRes.transactions || []);
-
-      // Calculate current month spending
-      calculateMonthlySpend();
+      // This also calculates and sets the current month spending for consistency
+      await calculateSpendingTrends(transactionsRes.transactions || []);
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -61,29 +67,70 @@ const Dashboard = () => {
 
   const calculateSpendingTrends = async (recentTx: any[]) => {
     try {
-      // Fetch last 6 months of transactions
+      const now = new Date();
+      
+      // Fetch last 6 months of transactions (same date range logic as Spending page)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
+      // Use exact same date range calculation as Spending page for "This Month"
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = now; // Same as Spending page: endDate = now
+      
       const { transactions } = await api.searchTransactions({
         start_date: sixMonthsAgo.toISOString().split('T')[0],
-        end_date: new Date().toISOString().split('T')[0],
+        end_date: endDate.toISOString().split('T')[0], // Same as Spending page
         limit: 10000,
       });
 
-      // Group by month
+      // Calculate spending for each month using exact month boundaries (same as Spending page)
       const monthlyData: { [key: string]: number } = {};
-      transactions.forEach((tx: any) => {
-        if (tx.transaction_type === 'expense' && tx.amount > 0) {
-          const date = new Date(tx.date);
-          const monthKey = date.toLocaleDateString('en-US', { month: 'short' });
-          monthlyData[monthKey] = (monthlyData[monthKey] || 0) + tx.amount;
+      const todayDateStr = now.toISOString().split('T')[0]; // Same date format as API
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      // Calculate spending for each of the last 5 months
+      for (let i = 4; i >= 0; i--) {
+        const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthName = months[monthDate.getMonth()];
+        const monthYear = monthDate.getFullYear();
+        const monthNum = monthDate.getMonth();
+        
+        // Calculate exact month boundaries (same as Spending page "Last Month" logic)
+        let monthStart: Date;
+        let monthEnd: Date;
+        
+        if (i === 0) {
+          // Current month: from first day to today
+          monthStart = new Date(monthYear, monthNum, 1);
+          monthEnd = now;
+        } else {
+          // Past months: full month (first day to last day)
+          monthStart = new Date(monthYear, monthNum, 1);
+          monthEnd = new Date(monthYear, monthNum + 1, 0); // Last day of the month
         }
-      });
+        
+        const monthStartStr = monthStart.toISOString().split('T')[0];
+        const monthEndStr = monthEnd.toISOString().split('T')[0];
+        
+        // Filter transactions for this specific month
+        const monthSpendingRaw = transactions
+          .filter((tx: any) => {
+            const txDateStr = tx.date.split('T')[0]; // Get date part only
+            const categoryName = getCategoryName(tx);
+            return tx.transaction_type === 'expense' &&
+                   tx.amount > 0 &&
+                   categoryName !== 'Income' &&
+                   categoryName !== 'Transfer' &&
+                   txDateStr >= monthStartStr &&
+                   txDateStr <= monthEndStr;
+          })
+          .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+        
+        // Round to 2 decimal places
+        monthlyData[monthName] = Math.round(monthSpendingRaw * 100) / 100;
+      }
 
       // Convert to chart data (last 5 months)
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const now = new Date();
       const chartData = [];
       
       for (let i = 4; i >= 0; i--) {
@@ -98,6 +145,11 @@ const Dashboard = () => {
       }
 
       setSpendingData(chartData);
+      
+      // Set current month spending from chart data
+      const currentMonthName = now.toLocaleDateString('en-US', { month: 'short' });
+      const currentMonthSpending = monthlyData[currentMonthName] || 0;
+      setMonthlySpend(currentMonthSpending);
     } catch (error) {
       console.error('Error calculating spending trends:', error);
     }
@@ -115,7 +167,19 @@ const Dashboard = () => {
         limit: 10000,
       });
 
-      const total = transactions.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0);
+      // Exclude Income and Transfer categories, same as Spending page
+      const spendingRaw = transactions
+        .filter((tx: any) => {
+          const categoryName = getCategoryName(tx);
+          return tx.transaction_type === 'expense' &&
+                 tx.amount > 0 &&
+                 categoryName !== 'Income' &&
+                 categoryName !== 'Transfer';
+        })
+        .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+      
+      // Round to 2 decimal places to avoid floating point precision issues
+      const total = Math.round(spendingRaw * 100) / 100;
       setMonthlySpend(total);
     } catch (error) {
       console.error('Error calculating monthly spend:', error);
