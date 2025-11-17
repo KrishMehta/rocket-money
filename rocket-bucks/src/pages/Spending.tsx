@@ -50,8 +50,8 @@ const Spending = () => {
 
       setTransactions(txData || []);
 
-      // Calculate spending first to get the correct value for current month
-      const currentMonthSpending = (txData || [])
+      // Calculate spending first to get the correct value for the selected period
+      const periodSpending = (txData || [])
         .filter((tx: any) => {
           const categoryName = getCategoryName(tx);
           return tx.transaction_type === 'expense' && 
@@ -61,9 +61,20 @@ const Spending = () => {
         })
         .reduce((sum: number, tx: any) => sum + tx.amount, 0);
 
+      // Determine which month to override in the bar chart based on active tab
+      let targetMonthKey: string;
+      if (activeTab === 'lastMonth') {
+        // For "Last Month", override the previous month
+        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        targetMonthKey = lastMonth.toLocaleDateString('en-US', { month: 'short' });
+      } else {
+        // For "This Month", override the current month
+        targetMonthKey = now.toLocaleDateString('en-US', { month: 'short' });
+      }
+
       // Calculate all metrics using the same spending value for consistency
-      const roundedSpending = Math.round(currentMonthSpending * 100) / 100;
-      calculateMonthlyTrends(txData || [], roundedSpending);
+      const roundedSpending = Math.round(periodSpending * 100) / 100;
+      calculateMonthlyTrends(txData || [], roundedSpending, targetMonthKey);
       calculateCategoryBreakdown(txData || [], roundedSpending);
       calculateTopMerchants(txData || []);
       calculateLargestPurchases(txData || []);
@@ -76,7 +87,7 @@ const Spending = () => {
     }
   };
 
-  const calculateMonthlyTrends = (currentTxData: any[], currentMonthSpendingValue: number) => {
+  const calculateMonthlyTrends = (currentTxData: any[], periodSpendingValue: number, targetMonthKey: string) => {
     try {
       // Use the filtered transaction data instead of fetching separately
       // Group by month - use same filter as spending calculation (exclude Income and Transfer)
@@ -121,10 +132,10 @@ const Spending = () => {
           }
         });
 
-        // Override current month with the calculated spending value to ensure consistency
+        // Override the target month (current month or last month based on active tab) 
+        // with the calculated spending value to ensure consistency
         // This ensures the bar chart matches the summary and pie chart exactly
-        const currentMonthKey = now.toLocaleDateString('en-US', { month: 'short' });
-        historicalMonthlyData[currentMonthKey] = currentMonthSpendingValue;
+        historicalMonthlyData[targetMonthKey] = periodSpendingValue;
 
         // Convert to chart data (last 6 months)
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
