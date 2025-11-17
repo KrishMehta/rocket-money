@@ -36,9 +36,9 @@ const Spending = () => {
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         endDate = new Date(now.getFullYear(), now.getMonth(), 0);
       } else {
-        // This month
+        // This month - use end of today to match Transactions page
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = now;
+        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       }
 
       // Fetch transactions for the selected period
@@ -183,9 +183,13 @@ const Spending = () => {
 
   const calculateSummary = async (txData: any[], startDate: Date, endDate: Date) => {
     // Current period
-    const income = txData
+    // Income transactions are stored as negative amounts (Plaid convention)
+    // So we need to take absolute value and sum them
+    const incomeRaw = txData
       .filter((tx: any) => tx.transaction_type === 'income')
-      .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+      .reduce((sum, tx) => sum + Math.abs(tx.amount || 0), 0);
+    // Round final result to 2 decimal places to avoid floating point precision issues
+    const income = Math.round(incomeRaw * 100) / 100;
     
     const bills = txData
       .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
