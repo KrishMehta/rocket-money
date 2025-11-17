@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Link } from 'react-router-dom';
 import { api } from '../utils/api';
 
@@ -58,8 +58,6 @@ const NetWorth = () => {
   };
 
   const calculateHistoricalNetWorth = async (accountsData: any[]) => {
-    // For now, we'll use current balance as baseline
-    // In a real app, you would fetch historical balance data
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const now = new Date();
     const chartData = [];
@@ -75,17 +73,13 @@ const NetWorth = () => {
     
     const currentNetWorth = currentAssets - currentDebts;
 
-    // Simulate historical data (in production, this would come from balance history)
-    // For now, just show the current value for all months
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthName = months[date.getMonth()];
-      
-      // For demo, show gradual growth
-      const factor = 0.85 + (i * 0.03);
+    // Only show data we actually have - just the current month
+    // In the future, if we have historical balance snapshots, we can add those here
+    if (accountsData.length > 0 && currentNetWorth !== 0) {
+      const monthName = months[now.getMonth()];
       chartData.push({
         month: monthName,
-        value: Math.round(currentNetWorth * factor),
+        value: currentNetWorth, // Keep as decimal for accurate display
       });
     }
 
@@ -281,7 +275,18 @@ const NetWorth = () => {
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis dataKey="month" stroke="#888" />
                       <YAxis stroke="#888" />
-                      <Tooltip />
+                      <Tooltip 
+                        formatter={(value: number) => `$${value.toFixed(2)}`}
+                      />
+                      {/* If there's only one data point, draw a horizontal line */}
+                      {netWorthData.length === 1 && (
+                        <ReferenceLine 
+                          y={netWorthData[0].value} 
+                          stroke="#3b82f6" 
+                          strokeWidth={3}
+                          strokeDasharray="0"
+                        />
+                      )}
                       <Line
                         type="monotone"
                         dataKey="value"
