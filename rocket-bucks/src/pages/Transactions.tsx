@@ -12,6 +12,7 @@ const Transactions = () => {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [categorizing, setCategorizing] = useState(false);
   const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -78,6 +79,94 @@ const Transactions = () => {
       setCategorizeMessage(error.message || 'Failed to categorize transactions');
     } finally {
       setCategorizing(false);
+    }
+  };
+
+  // Export transactions to CSV
+  const exportTransactionsToCSV = async () => {
+    try {
+      setExporting(true);
+      console.log('📥 Exporting transactions to CSV...');
+      
+      // Build filters (same as loadTransactionsFromDB but without pagination)
+      const filters: any = {
+        limit: 10000, // Large limit to get all transactions
+        offset: 0,
+      };
+      
+      if (searchTerm) filters.search = searchTerm;
+      if (selectedCategory) filters.user_category_name = selectedCategory;
+      if (selectedAccount) filters.account_id = selectedAccount;
+      
+      if (dateFilter !== 'all') {
+        const now = new Date();
+        if (dateFilter === 'thisMonth') {
+          const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+          filters.start_date = firstDay.toISOString().split('T')[0];
+          filters.end_date = now.toISOString().split('T')[0];
+        } else if (dateFilter === 'lastMonth') {
+          const firstDayLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastDayLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+          filters.start_date = firstDayLastMonth.toISOString().split('T')[0];
+          filters.end_date = lastDayLastMonth.toISOString().split('T')[0];
+        } else if (dateFilter === 'last3Months') {
+          const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+          filters.start_date = threeMonthsAgo.toISOString().split('T')[0];
+          filters.end_date = now.toISOString().split('T')[0];
+        }
+      }
+      
+      // Add sorting
+      filters.sort_by = sortBy;
+      filters.sort_order = sortOrder;
+      
+      // Fetch all transactions
+      const result = await api.searchTransactions(filters);
+      const allTransactions = result.transactions || [];
+      
+      if (allTransactions.length === 0) {
+        alert('No transactions to export');
+        return;
+      }
+      
+      // Convert to CSV
+      const headers = ['Date', 'Name', 'Category', 'Amount', 'Account', 'Pending', 'Transaction Type'];
+      const csvRows = [
+        headers.join(','),
+        ...allTransactions.map((tx: any) => {
+          const date = new Date(tx.date).toLocaleDateString('en-US');
+          const name = `"${(tx.name || '').replace(/"/g, '""')}"`;
+          const category = getCategoryName(tx);
+          const amount = tx.transaction_type === 'income' ? `+${Math.abs(tx.amount || 0).toFixed(2)}` : Math.abs(tx.amount || 0).toFixed(2);
+          const account = tx.accounts ? `"${tx.accounts.name || ''} ••••${tx.accounts.mask || ''}"` : '';
+          const pending = tx.pending ? 'Yes' : 'No';
+          const type = tx.transaction_type || 'expense';
+          
+          return [date, name, category, amount, account, pending, type].join(',');
+        }),
+      ];
+      
+      const csvContent = csvRows.join('\n');
+      
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log(`✅ Exported ${allTransactions.length} transactions to CSV`);
+    } catch (error: any) {
+      console.error('❌ Error exporting transactions:', error);
+      alert('Failed to export transactions: ' + (error.message || 'Unknown error'));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -235,9 +324,14 @@ const Transactions = () => {
             <span>🏷️</span>
             {categorizing ? 'Categorizing...' : 'Auto-Categorize'}
           </button>
-          <button className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-            <span>📥</span>
-            Export
+          <button 
+            onClick={exportTransactionsToCSV}
+            disabled={exporting}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            title="Export transactions to CSV"
+          >
+            <span className={exporting ? 'animate-spin' : ''}>📥</span>
+            {exporting ? 'Exporting...' : 'Export'}
           </button>
           <select
             value={`${sortBy}-${sortOrder}`}
