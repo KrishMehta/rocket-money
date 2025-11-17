@@ -276,9 +276,20 @@ const Spending = () => {
     // Round final result to 2 decimal places to avoid floating point precision issues
     const income = Math.round(incomeRaw * 100) / 100;
     
-    const bills = txData
-      .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
+    // Bills should include transactions categorized as "Bills & Utilities" 
+    // or transactions marked as recurring (to catch bills that Plaid identified as recurring)
+    const billsRaw = txData
+      .filter((tx: any) => {
+        const categoryName = getCategoryName(tx);
+        return tx.transaction_type === 'expense' && 
+               tx.amount > 0 &&
+               (tx.is_recurring || 
+                categoryName === 'Bills & Utilities' || 
+                categoryName === 'Bills and Utilities');
+      })
       .reduce((sum, tx) => sum + tx.amount, 0);
+    // Round to avoid floating point precision issues
+    const bills = Math.round(billsRaw * 100) / 100;
     
     // Spending: all expenses (excluding income and transfers)
     const spendingRaw = txData
@@ -311,9 +322,17 @@ const Spending = () => {
         limit: 10000,
       });
 
-      const prevBills = prevTx
-        .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
+      const prevBillsRaw = prevTx
+        .filter((tx: any) => {
+          const categoryName = getCategoryName(tx);
+          return tx.transaction_type === 'expense' && 
+                 tx.amount > 0 &&
+                 (tx.is_recurring || 
+                  categoryName === 'Bills & Utilities' || 
+                  categoryName === 'Bills and Utilities');
+        })
         .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+      const prevBills = Math.round(prevBillsRaw * 100) / 100;
       
       const prevSpending = prevTx
         .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
