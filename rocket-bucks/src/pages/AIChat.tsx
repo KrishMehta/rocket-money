@@ -20,6 +20,12 @@ interface FinancialSnapshot {
   generatedAt?: string;
 }
 
+type ContentBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'ordered-list'; items: string[] }
+  | { type: 'unordered-list'; items: string[] }
+  | { type: 'heading'; text: string };
+
 const MAX_HISTORY_MESSAGES = 8;
 
 const createMessageId = () => Date.now() + Math.floor(Math.random() * 1000);
@@ -42,6 +48,130 @@ const formatSignedCurrency = (value?: number) => {
   }
   const formatted = formatCurrencyValue(Math.abs(value));
   return value > 0 ? `+${formatted}` : `-${formatted}`;
+};
+
+const normalizeAssistantText = (text: string) =>
+  text
+    .replace(/\r\n/g, '\n')
+    .replace(/(?<!\n)(\d+\.\s)/g, '\n$1')
+    .replace(/(?<!\n)([-•]\s)/g, '\n$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const buildContentBlocks = (text: string): ContentBlock[] => {
+  const normalized = normalizeAssistantText(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const blocks: ContentBlock[] = [];
+  let currentListType: 'ordered-list' | 'unordered-list' | null = null;
+  let currentItems: string[] = [];
+
+  const flushList = () => {
+    if (currentListType && currentItems.length) {
+      blocks.push({ type: currentListType, items: currentItems });
+      currentListType = null;
+      currentItems = [];
+    }
+  };
+
+  lines.forEach((line) => {
+    const headingMatch = line.match(/^#{1,6}\s*(.*)$/);
+    const orderedMatch = line.match(/^(\d+)\.\s*(.*)$/);
+    const unorderedMatch = line.match(/^[-•]\s*(.*)$/);
+
+    if (headingMatch) {
+      flushList();
+      blocks.push({
+        type: 'heading',
+        text: headingMatch[1]?.trim() || '',
+      });
+      return;
+    }
+
+    if (orderedMatch) {
+      if (currentListType !== 'ordered-list') {
+        flushList();
+        currentListType = 'ordered-list';
+      }
+      currentItems.push((orderedMatch[2] || orderedMatch[1]).trim());
+      return;
+    }
+
+    if (unorderedMatch) {
+      if (currentListType !== 'unordered-list') {
+        flushList();
+        currentListType = 'unordered-list';
+      }
+      currentItems.push(unorderedMatch[1]?.trim() || '');
+      return;
+    }
+
+    flushList();
+    blocks.push({
+      type: 'paragraph',
+      text: line,
+    });
+  });
+
+  flushList();
+  return blocks.length ? blocks : [{ type: 'paragraph', text: normalized }];
+};
+
+const renderAssistantContent = (text: string) => {
+  const blocks = buildContentBlocks(text);
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return (
+            <p key={`heading-${index}`} className="text-sm font-semibold text-gray-900">
+              {block.text}
+            </p>
+          );
+        }
+
+        if (block.type === 'ordered-list') {
+          return (
+            <ol
+              key={`ol-${index}`}
+              className="list-decimal pl-5 space-y-1 text-sm text-gray-900 leading-relaxed"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`ol-${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ol>
+          );
+        }
+
+        if (block.type === 'unordered-list') {
+          return (
+            <ul
+              key={`ul-${index}`}
+              className="list-disc pl-5 space-y-1 text-sm text-gray-900 leading-relaxed"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`ul-${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ul>
+          );
+        }
+
+        return (
+          <p key={`paragraph-${index}`} className="text-sm leading-relaxed text-gray-900">
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
 };
 
 const AIChat = () => {
@@ -142,10 +272,10 @@ const AIChat = () => {
   };
 
   const quickActions = [
-    { icon: 'dY"S', text: 'Analyze my spending', action: 'Tell me about my spending patterns' },
-    { icon: "dY'�", text: 'Savings tips', action: 'Give me tips to save more money' },
-    { icon: 'dY"^', text: 'Investment advice', action: 'Should I invest my savings?' },
-    { icon: "dY'3", text: 'Lower my bills', action: 'How can I lower my bills?' },
+    { icon: '📊', text: 'Analyze my spending', action: 'Tell me about my spending patterns' },
+    { icon: '💡', text: 'Savings tips', action: 'Give me tips to save more money' },
+    { icon: '📈', text: 'Investment advice', action: 'Should I invest my savings?' },
+    { icon: '💸', text: 'Lower my bills', action: 'How can I lower my bills?' },
   ];
 
   const handleQuickAction = (action: string) => {
@@ -237,22 +367,26 @@ const AIChat = () => {
                     {message.sender === 'ai' && (
                       <div className="flex items-center gap-2 mb-2">
                         <div className="w-6 h-6 bg-gradient-to-br from-red-500 to-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                          dY-
+                          RB
                         </div>
                         <span className="text-xs font-semibold text-gray-900">Rocket Bucks AI</span>
                       </div>
                     )}
-                    <p
-                      className={`text-sm leading-relaxed ${
-                        message.sender === 'user'
-                          ? 'text-white'
-                          : isErrorMessage
-                            ? 'text-red-700'
-                            : 'text-gray-900'
-                      } ${isErrorMessage ? 'italic' : ''}`}
-                    >
-                      {message.text}
-                    </p>
+                    {message.sender === 'ai' && !isErrorMessage ? (
+                      renderAssistantContent(message.text)
+                    ) : (
+                      <p
+                        className={`text-sm leading-relaxed ${
+                          message.sender === 'user'
+                            ? 'text-white'
+                            : isErrorMessage
+                              ? 'text-red-700'
+                              : 'text-gray-900'
+                        } ${isErrorMessage ? 'italic' : ''}`}
+                      >
+                        {message.text}
+                      </p>
+                    )}
                     <p className={`text-xs mt-2 ${message.sender === 'user' ? 'text-red-200' : 'text-gray-500'}`}>
                       {message.timestamp.toLocaleTimeString([], {
                         hour: '2-digit',
@@ -269,7 +403,7 @@ const AIChat = () => {
                 <div className="max-w-2xl rounded-2xl px-6 py-4 bg-white shadow-sm border border-gray-200">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-6 h-6 bg-gradient-to-br from-red-500 to-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                      dY-
+                      RB
                     </div>
                     <span className="text-xs font-semibold text-gray-900">Rocket Bucks AI</span>
                   </div>
