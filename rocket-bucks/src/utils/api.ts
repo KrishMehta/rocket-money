@@ -394,5 +394,43 @@ export const api = {
 
     return response.json();
   },
+
+  askFinancialAdvisor: async (payload: {
+    message: string;
+    conversation?: { role: 'user' | 'assistant'; content: string }[];
+  }): Promise<{
+    message: string;
+    model?: string;
+    context?: {
+      netWorth?: number;
+      totalAssets?: number;
+      totalLiabilities?: number;
+      monthlySpending?: number;
+      monthlyIncome?: number;
+      spendingChange?: number;
+      recurringTotal?: number;
+      generatedAt?: string;
+    };
+    context_summary?: string;
+  }> => {
+    const response = await fetch(`${getApiUrl()}/ai/chat`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Failed to generate AI advice';
+      try {
+        const error = await response.json();
+        errorMessage = error.error || errorMessage;
+      } catch (err) {
+        // ignore body parsing issues
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  },
 };
 

@@ -1,11 +1,178 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { api } from '../utils/api';
 
 interface Message {
   id: number;
   text: string;
   sender: 'user' | 'ai';
   timestamp: Date;
+  status?: 'error';
 }
+
+interface FinancialSnapshot {
+  netWorth?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  monthlySpending?: number;
+  monthlyIncome?: number;
+  spendingChange?: number;
+  recurringTotal?: number;
+  generatedAt?: string;
+}
+
+type ContentBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'ordered-list'; items: string[] }
+  | { type: 'unordered-list'; items: string[] }
+  | { type: 'heading'; text: string };
+
+const MAX_HISTORY_MESSAGES = 8;
+
+const createMessageId = () => Date.now() + Math.floor(Math.random() * 1000);
+
+const formatCurrencyValue = (value?: number) => {
+  const numericValue =
+    typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  const fractionDigits = Math.abs(numericValue) >= 1000 ? 0 : 2;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(numericValue);
+};
+
+const formatSignedCurrency = (value?: number) => {
+  if (typeof value !== 'number' || Number.isNaN(value) || value === 0) {
+    return formatCurrencyValue(0);
+  }
+  const formatted = formatCurrencyValue(Math.abs(value));
+  return value > 0 ? `+${formatted}` : `-${formatted}`;
+};
+
+const normalizeAssistantText = (text: string) =>
+  text
+    .replace(/\r\n/g, '\n')
+    .replace(/(?<!\n)(\d+\.\s)/g, '\n$1')
+    .replace(/(?<!\n)([-•]\s)/g, '\n$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const buildContentBlocks = (text: string): ContentBlock[] => {
+  const normalized = normalizeAssistantText(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const blocks: ContentBlock[] = [];
+  let currentListType: 'ordered-list' | 'unordered-list' | null = null;
+  let currentItems: string[] = [];
+
+  const flushList = () => {
+    if (currentListType && currentItems.length) {
+      blocks.push({ type: currentListType, items: currentItems });
+      currentListType = null;
+      currentItems = [];
+    }
+  };
+
+  lines.forEach((line) => {
+    const headingMatch = line.match(/^#{1,6}\s*(.*)$/);
+    const orderedMatch = line.match(/^(\d+)\.\s*(.*)$/);
+    const unorderedMatch = line.match(/^[-•]\s*(.*)$/);
+
+    if (headingMatch) {
+      flushList();
+      blocks.push({
+        type: 'heading',
+        text: headingMatch[1]?.trim() || '',
+      });
+      return;
+    }
+
+    if (orderedMatch) {
+      if (currentListType !== 'ordered-list') {
+        flushList();
+        currentListType = 'ordered-list';
+      }
+      currentItems.push((orderedMatch[2] || orderedMatch[1]).trim());
+      return;
+    }
+
+    if (unorderedMatch) {
+      if (currentListType !== 'unordered-list') {
+        flushList();
+        currentListType = 'unordered-list';
+      }
+      currentItems.push(unorderedMatch[1]?.trim() || '');
+      return;
+    }
+
+    flushList();
+    blocks.push({
+      type: 'paragraph',
+      text: line,
+    });
+  });
+
+  flushList();
+  return blocks.length ? blocks : [{ type: 'paragraph', text: normalized }];
+};
+
+const renderAssistantContent = (text: string) => {
+  const blocks = buildContentBlocks(text);
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return (
+            <p key={`heading-${index}`} className="text-sm font-semibold text-gray-900">
+              {block.text}
+            </p>
+          );
+        }
+
+        if (block.type === 'ordered-list') {
+          return (
+            <ol
+              key={`ol-${index}`}
+              className="list-decimal pl-5 space-y-1 text-sm text-gray-900 leading-relaxed"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`ol-${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ol>
+          );
+        }
+
+        if (block.type === 'unordered-list') {
+          return (
+            <ul
+              key={`ul-${index}`}
+              className="list-disc pl-5 space-y-1 text-sm text-gray-900 leading-relaxed"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`ul-${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ul>
+          );
+        }
+
+        return (
+          <p key={`paragraph-${index}`} className="text-sm leading-relaxed text-gray-900">
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
 
 const AIChat = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -18,6 +185,7 @@ const AIChat = () => {
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [snapshot, setSnapshot] = useState<FinancialSnapshot | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -28,62 +196,75 @@ const AIChat = () => {
     scrollToBottom();
   }, [messages]);
 
-  const generateAIResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
+  const handleSendMessage = async (overrideMessage?: string) => {
+    if (isTyping) return;
 
-    if (lowerMessage.includes('spending') || lowerMessage.includes('spend')) {
-      return "Based on your recent transactions, you've spent $8,761 this month, which is $33,033 less than last month! Your top spending categories are Education (48%), Dining & Drinks (17%), and Bills & Utilities (12%). Would you like some tips on reducing spending in any of these areas?";
-    } else if (lowerMessage.includes('save') || lowerMessage.includes('saving')) {
-      return "Great question! Here are some personalized savings tips: 1) You're spending $1,640/month on dining - consider meal prepping to cut this by 30%. 2) I noticed you have multiple subscriptions totaling $1,567/year. Review them and cancel unused ones. 3) Your savings account ($20,000) could earn more in a high-yield savings account. Would you like help with any of these?";
-    } else if (lowerMessage.includes('budget')) {
-      return "Let's create a budget! Based on your income and spending patterns, I recommend the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Your current spending on Education ($3,399) and Bills ($1,070) seem to be your main needs. Shall we break this down further?";
-    } else if (lowerMessage.includes('debt') || lowerMessage.includes('credit card')) {
-      return "I see you have $610 in credit card debt. At typical interest rates, this could cost you $100+ per year in interest. I recommend: 1) Pay more than the minimum payment, 2) Consider the avalanche method (highest interest first), 3) Avoid new charges while paying down. Would you like a specific payoff plan?";
-    } else if (lowerMessage.includes('net worth')) {
-      return "Your net worth is currently $19,936 - that's fantastic! It's increased by $19,936 over the last 6 months. Your assets ($20,546) are primarily in savings (97%). To grow your wealth faster, consider diversifying into investments. Would you like investment recommendations?";
-    } else if (lowerMessage.includes('investment') || lowerMessage.includes('invest')) {
-      return "Investing can significantly grow your wealth! With $20,000 in savings, consider: 1) Keep 3-6 months expenses in savings ($5,000-10,000), 2) Invest the rest in a diversified portfolio (index funds, ETFs), 3) Start with low-cost platforms like Vanguard or Fidelity. At 7% average returns, $10,000 could grow to $19,672 in 10 years. Want to learn more?";
-    } else if (lowerMessage.includes('subscription')) {
-      return "Looking at your subscriptions: You're spending $1,567/yearly on 5 subscriptions including OpenAI ($20/mo), Cursor ($20/mo), Paramount+ ($12.99/mo), Apple App Store ($2.99/mo), and a Credit Card Fee ($895/year). The credit card fee is quite high - consider if the rewards justify it. I can help negotiate or cancel any of these!";
-    } else if (lowerMessage.includes('bill') || lowerMessage.includes('lower')) {
-      return "I can help lower your bills! Your AT&T bill is $164.44/month. I'm currently negotiating this for you (check the 'My requests' section). On average, we save customers 20-30% on utility bills. Would you like me to review your other recurring bills for savings opportunities?";
-    } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-      return "Hello! Great to see you! I'm here to help you achieve your financial goals. Would you like to discuss your spending, savings strategies, debt payoff plans, or investment opportunities?";
-    } else if (lowerMessage.includes('thank')) {
-      return "You're very welcome! I'm here anytime you need financial guidance. Remember, small changes in spending can lead to big savings over time. Is there anything else you'd like to discuss?";
-    } else {
-      return "I'm here to help with your finances! I can provide insights on your spending ($8,761 this month), help optimize your budget, suggest ways to grow your savings ($20,000), analyze your subscriptions ($1,567/year), or discuss your net worth ($19,936). What would you like to explore?";
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    const outgoing = (overrideMessage ?? inputMessage).trim();
+    if (!outgoing) return;
 
     const userMessage: Message = {
-      id: messages.length + 1,
-      text: inputMessage,
+      id: createMessageId(),
+      text: outgoing,
       sender: 'user',
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    let updatedMessages: Message[] = [];
+    setMessages((prev) => {
+      updatedMessages = [...prev, userMessage];
+      return updatedMessages;
+    });
     setInputMessage('');
     setIsTyping(true);
 
-    // Simulate AI thinking time
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: messages.length + 2,
-        text: generateAIResponse(inputMessage),
+    const baseMessages = updatedMessages.length ? updatedMessages : [...messages, userMessage];
+    const conversationHistory = baseMessages
+      .filter((msg) => msg.sender === 'user' || msg.sender === 'ai')
+      .slice(-MAX_HISTORY_MESSAGES)
+      .map((msg) => ({
+        role: msg.sender === 'user' ? 'user' : 'assistant',
+        content: msg.text,
+      }));
+
+    try {
+      const response = await api.askFinancialAdvisor({
+        message: outgoing,
+        conversation: conversationHistory,
+      });
+
+      if (response.context) {
+        setSnapshot(response.context);
+      }
+
+      const replyText =
+        response.message?.trim() ||
+        "I'm reviewing your finances. Try asking another question in a moment.";
+
+      const aiMessage: Message = {
+        id: createMessageId(),
+        text: replyText,
         sender: 'ai',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, aiResponse]);
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      const fallbackMessage: Message = {
+        id: createMessageId(),
+        text:
+          error instanceof Error && error.message
+            ? error.message
+            : "I'm having trouble reaching our advisor right now. Please try again shortly.",
+        sender: 'ai',
+        timestamp: new Date(),
+        status: 'error',
+      };
+      setMessages((prev) => [...prev, fallbackMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000);
+    }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -92,14 +273,28 @@ const AIChat = () => {
 
   const quickActions = [
     { icon: '📊', text: 'Analyze my spending', action: 'Tell me about my spending patterns' },
-    { icon: '💰', text: 'Savings tips', action: 'Give me tips to save more money' },
+    { icon: '💡', text: 'Savings tips', action: 'Give me tips to save more money' },
     { icon: '📈', text: 'Investment advice', action: 'Should I invest my savings?' },
-    { icon: '💳', text: 'Lower my bills', action: 'How can I lower my bills?' },
+    { icon: '💸', text: 'Lower my bills', action: 'How can I lower my bills?' },
   ];
 
   const handleQuickAction = (action: string) => {
-    setInputMessage(action);
+    if (isTyping) return;
+    handleSendMessage(action);
   };
+
+  const spendingChangeClass =
+    snapshot && typeof snapshot.spendingChange === 'number'
+      ? snapshot.spendingChange > 0
+        ? 'text-red-600'
+        : snapshot.spendingChange < 0
+          ? 'text-green-600'
+          : 'text-gray-500'
+      : 'text-gray-500';
+
+  const snapshotUpdatedAt = snapshot?.generatedAt
+    ? new Date(snapshot.generatedAt).toLocaleString()
+    : null;
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -108,6 +303,45 @@ const AIChat = () => {
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">AI Financial Advisor</h1>
           <p className="text-gray-600">Get personalized financial advice powered by AI</p>
+
+          {snapshot && (
+            <>
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <p className="text-xs uppercase text-gray-500 tracking-wide">Net worth</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrencyValue(snapshot.netWorth)}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <p className="text-xs uppercase text-gray-500 tracking-wide">30-day spend</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrencyValue(snapshot.monthlySpending)}
+                  </p>
+                  <p className={`text-xs mt-1 ${spendingChangeClass}`}>
+                    {typeof snapshot.spendingChange === 'number'
+                      ? `${formatSignedCurrency(snapshot.spendingChange)} vs last month`
+                      : 'Tracking activity...'}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <p className="text-xs uppercase text-gray-500 tracking-wide">30-day income</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrencyValue(snapshot.monthlyIncome)}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <p className="text-xs uppercase text-gray-500 tracking-wide">Recurring charges</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatCurrencyValue(snapshot.recurringTotal)}
+                  </p>
+                </div>
+              </div>
+              {snapshotUpdatedAt && (
+                <p className="text-xs text-gray-500 mt-2">Data refreshed {snapshotUpdatedAt}</p>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -116,47 +350,60 @@ const AIChat = () => {
         <div className="max-w-4xl mx-auto h-full flex flex-col">
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            {messages.map((message) => {
+              const isErrorMessage = message.status === 'error';
+              return (
                 <div
-                  className={`max-w-2xl rounded-2xl px-6 py-4 ${
-                    message.sender === 'user'
-                      ? 'bg-red-600 text-white'
-                      : 'bg-white shadow-sm border border-gray-200'
-                  }`}
+                  key={message.id}
+                  className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {message.sender === 'ai' && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-6 h-6 bg-gradient-to-br from-red-500 to-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                        🤖
+                  <div
+                    className={`max-w-2xl rounded-2xl px-6 py-4 ${
+                      message.sender === 'user'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-white shadow-sm border border-gray-200'
+                    }`}
+                  >
+                    {message.sender === 'ai' && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 bg-gradient-to-br from-red-500 to-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                          RB
+                        </div>
+                        <span className="text-xs font-semibold text-gray-900">Rocket Bucks AI</span>
                       </div>
-                      <span className="text-xs font-semibold text-gray-900">
-                        Rocket Bucks AI
-                      </span>
-                    </div>
-                  )}
-                  <p className={`text-sm leading-relaxed ${message.sender === 'user' ? 'text-white' : 'text-gray-900'}`}>
-                    {message.text}
-                  </p>
-                  <p className={`text-xs mt-2 ${message.sender === 'user' ? 'text-red-200' : 'text-gray-500'}`}>
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
+                    )}
+                    {message.sender === 'ai' && !isErrorMessage ? (
+                      renderAssistantContent(message.text)
+                    ) : (
+                      <p
+                        className={`text-sm leading-relaxed ${
+                          message.sender === 'user'
+                            ? 'text-white'
+                            : isErrorMessage
+                              ? 'text-red-700'
+                              : 'text-gray-900'
+                        } ${isErrorMessage ? 'italic' : ''}`}
+                      >
+                        {message.text}
+                      </p>
+                    )}
+                    <p className={`text-xs mt-2 ${message.sender === 'user' ? 'text-red-200' : 'text-gray-500'}`}>
+                      {message.timestamp.toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isTyping && (
               <div className="flex justify-start">
                 <div className="max-w-2xl rounded-2xl px-6 py-4 bg-white shadow-sm border border-gray-200">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-6 h-6 bg-gradient-to-br from-red-500 to-orange-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                      🤖
+                      RB
                     </div>
                     <span className="text-xs font-semibold text-gray-900">Rocket Bucks AI</span>
                   </div>
@@ -205,7 +452,7 @@ const AIChat = () => {
                 disabled={isTyping}
               />
               <button
-                onClick={handleSendMessage}
+                onClick={() => handleSendMessage()}
                 disabled={!inputMessage.trim() || isTyping}
                 className="px-6 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
@@ -213,7 +460,7 @@ const AIChat = () => {
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
-              💡 Tip: Ask about spending, savings, investments, or bill negotiations
+              Tip: Ask about spending, savings, investments, or bill negotiations
             </p>
           </div>
         </div>
@@ -223,4 +470,3 @@ const AIChat = () => {
 };
 
 export default AIChat;
-
