@@ -71,16 +71,19 @@ function autoCategorizeTransaction(transactionName, merchantName) {
     { keywords: ['amc', 'regal', 'cinemark', 'movie', 'cinema'], category: 'Entertainment' },
     { keywords: ['entertainment', 'streaming'], category: 'Entertainment' },
     
-    // Food & Dining - most specific first
+    // Food & Dining - most specific first (grocery stores BEFORE generic restaurant patterns)
     { keywords: ['uber eats', 'doordash', 'grubhub', 'postmates', 'seamless'], category: 'Food and Drink' },
-    { keywords: ['mcdonalds', 'burger king', 'taco bell', 'chipotle', 'five guys', 'raising cane', 'starbucks', 'dunkin', 'subway', 'panera', 'chick-fil-a', 'shake shack', 'in-n-out', 'popeyes', 'kfc', 'wendys', 'cooks & soldiers', 'cooks and soldiers'], category: 'Restaurants' },
-    { keywords: ['restaurant', 'cafe', 'coffee', 'diner', 'bistro', 'grill', 'pizza', 'sushi', 'bar', 'pub'], category: 'Restaurants' },
+    { keywords: ['whole foods', 'trader joe', 'safeway', 'kroger', 'publix', 'albertsons', 'heb', 'wegmans', 'aldi', 'costco', 'grocery', 'supermarket', 'market', '7-eleven', '7 eleven', '7eleven', 'cloud 9 smoke'], category: 'Groceries' },
+    { keywords: ['mcdonalds', 'burger king', 'taco bell', 'chipotle', 'five guys', 'raising cane', 'starbucks', 'dunkin', 'subway', 'panera', 'chick-fil-a', 'shake shack', 'in-n-out', 'popeyes', 'kfc', 'wendys', 'cooks & soldiers', 'cooks and soldiers', 'buffalo wild wings', 'buffalo wild wngs', 'bww'], category: 'Restaurants' },
+    { keywords: ['picowrap', 'twisted branch tea', 'twisted branch', 'twisted branch tea b'], category: 'Restaurants' },
+    // Note: 'pub' removed from restaurants to avoid matching "publix" - use 'bar' or 'tavern' instead
+    { keywords: ['restaurant', 'cafe', 'coffee', 'diner', 'bistro', 'grill', 'pizza', 'sushi', 'bar'], category: 'Restaurants' },
     { keywords: ['dining', 'food', 'meal'], category: 'Food and Drink' },
-    { keywords: ['whole foods', 'trader joe', 'safeway', 'kroger', 'publix', 'albertsons', 'heb', 'wegmans', 'aldi', 'costco', 'grocery', 'supermarket', 'market'], category: 'Groceries' },
     
     // Transportation
     { keywords: ['uber', 'lyft', 'taxi', 'cab', 'ride'], category: 'Transportation' },
-    { keywords: ['shell', 'chevron', 'exxon', 'mobil', 'bp', 'gas', 'fuel', 'petrol'], category: 'Gas Stations' },
+    // Note: 'mobil' removed from gas stations to avoid matching "mobile payment"
+    { keywords: ['shell', 'chevron', 'exxon', 'bp', 'gas station', 'gasoline', 'fuel', 'petrol'], category: 'Gas Stations' },
     { keywords: ['parking', 'toll'], category: 'Transportation' },
     { keywords: ['transit', 'metro', 'bus', 'train', 'subway', 'rail'], category: 'Transportation' },
     
@@ -111,12 +114,13 @@ function autoCategorizeTransaction(transactionName, merchantName) {
     
     // Professional Services
     { keywords: ['insurance', 'geico', 'progressive', 'state farm'], category: 'Insurance' },
-    { keywords: ['lawyer', 'attorney', 'legal', 'tax', 'accountant', 'cpa', 'negotiate', 'negotiation', 'rkt money', 'rocket money'], category: 'Services' },
+    { keywords: ['lawyer', 'attorney', 'legal', 'tax', 'accountant', 'cpa', 'negotiate', 'negotiation', 'rkt money', 'rocket money'], category: 'Service' },
     
     // Education
     { keywords: ['tuition', 'school', 'college', 'university', 'coursera', 'udemy', 'education'], category: 'Education' },
     
-    // Banking & Transfers - Credit card payments (specific patterns)
+    // Banking & Transfers - Credit card payments (specific patterns - check mobile payments FIRST before gas stations)
+    { keywords: ['mobile payment - thank you', 'payment thank you-mobile', 'payment thank you mobile', 'mobile payment thank you', 'mobile payment'], category: 'Transfer' },
     { keywords: ['ach pmt', 'ach payment', 'ach transfer'], category: 'Transfer' },
     { keywords: ['american express ach', 'amex ach', 'chase ach', 'discover ach', 'capital one ach', 'citibank ach'], category: 'Transfer' },
     { keywords: ['payment to chase card', 'payment to american express', 'payment to amex', 'payment to discover', 'payment to capital one'], category: 'Transfer' },
@@ -1522,12 +1526,11 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Get all uncategorized transactions (no user_category_name and either no plaid category or plaid category is null/Uncategorized)
+    // Get all transactions to recategorize (including already categorized ones to fix mistakes)
     const { data: transactions, error: fetchError } = await supabase
       .from('transactions')
       .select('id, name, merchant_name, plaid_primary_category, user_category_name')
-      .eq('user_id', user.id)
-      .is('user_category_name', null);
+      .eq('user_id', user.id);
 
     if (fetchError) {
       console.error('Error fetching transactions:', fetchError);
@@ -1547,23 +1550,37 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
     // Categorize each transaction
     const updates = [];
     let categorizedCount = 0;
+    let recategorizedCount = 0;
 
     for (const tx of transactions) {
-      // Skip if already has a meaningful Plaid category (not null or "Uncategorized")
-      if (tx.plaid_primary_category && tx.plaid_primary_category !== 'Uncategorized' && tx.plaid_primary_category.toLowerCase() !== 'uncategorized') {
-        continue;
-      }
-
       // Get auto-generated category
       const category = autoCategorizeTransaction(tx.name, tx.merchant_name);
       
-      // Only update if we got a non-Uncategorized category
-      if (category && category !== 'Uncategorized') {
+      // Skip if auto-categorizer returns Uncategorized
+      if (!category || category === 'Uncategorized') {
+        continue;
+      }
+
+      // If transaction has no user_category_name, categorize it
+      if (!tx.user_category_name) {
+        // Skip if already has a meaningful Plaid category (not null or "Uncategorized")
+        if (tx.plaid_primary_category && tx.plaid_primary_category !== 'Uncategorized' && tx.plaid_primary_category.toLowerCase() !== 'uncategorized') {
+          continue;
+        }
         updates.push({
           id: tx.id,
           user_category_name: category,
         });
         categorizedCount++;
+      } 
+      // If transaction already has a user_category_name but it's different from what auto-categorizer suggests, recategorize it
+      // This fixes mistakes from previous auto-categorization runs
+      else if (tx.user_category_name !== category) {
+        updates.push({
+          id: tx.id,
+          user_category_name: category,
+        });
+        recategorizedCount++;
       }
     }
 
@@ -1584,16 +1601,20 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
         }
       }
 
-      console.log(`✅ Successfully categorized ${successCount} of ${updates.length} transactions`);
-      categorizedCount = successCount; // Update the count to reflect actual successes
+      const recategorizedSuccess = Math.min(recategorizedCount, successCount);
+      const newCategorizedSuccess = successCount - recategorizedSuccess;
+      console.log(`✅ Successfully categorized ${newCategorizedSuccess} new and recategorized ${recategorizedSuccess} existing transactions`);
+      categorizedCount = newCategorizedSuccess;
+      recategorizedCount = recategorizedSuccess;
     }
 
     res.json({
       success: true,
-      message: `Successfully categorized ${categorizedCount} transaction${categorizedCount !== 1 ? 's' : ''}`,
+      message: `Successfully categorized ${categorizedCount} new transaction${categorizedCount !== 1 ? 's' : ''} and recategorized ${recategorizedCount} existing transaction${recategorizedCount !== 1 ? 's' : ''}`,
       total_checked: transactions.length,
       categorized_count: categorizedCount,
-      uncategorized_count: transactions.length - categorizedCount,
+      recategorized_count: recategorizedCount,
+      uncategorized_count: transactions.length - categorizedCount - recategorizedCount,
     });
   } catch (error) {
     console.error('❌ Error auto-categorizing transactions:', error);
