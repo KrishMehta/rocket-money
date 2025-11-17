@@ -1010,62 +1010,6 @@ const Recurring = () => {
               </div>
             )}
           </div>
-
-          {/* Credit Card Payments */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-900">{creditCards.length} Credit Card Payment{creditCards.length !== 1 ? 's' : ''}</h3>
-              <p className="text-sm text-gray-600">
-                You spend ${creditCards.reduce((sum, c) => sum + calculateYearlyAmount(c.expected_amount || 0, c.frequency || 'monthly'), 0).toFixed(2)}/yearly
-              </p>
-            </div>
-
-            {creditCards.length === 0 ? (
-              <p className="text-sm text-gray-600 text-center py-8">No credit card payments found</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Name/Frequency</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Account</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Due</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {creditCards.map((card, index) => (
-                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-                              {card.name.substring(0, 2).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">{card.name}</p>
-                              <p className="text-xs text-gray-600">{card.frequency || 'Monthly'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className="text-sm text-gray-600">
-                            {card.accounts ? `••••${card.accounts.mask}` : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 text-sm text-gray-900">{card.due_in || 'N/A'}</td>
-                        <td className="py-4 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="text-sm font-medium text-gray-900">${(card.expected_amount || 0).toLocaleString()}</span>
-                            <button className="text-gray-400 hover:text-gray-600">⋮</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
           </div>
 
           {/* Sidebar */}
