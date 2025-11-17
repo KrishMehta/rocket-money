@@ -116,7 +116,11 @@ function autoCategorizeTransaction(transactionName, merchantName) {
     // Education
     { keywords: ['tuition', 'school', 'college', 'university', 'coursera', 'udemy', 'education'], category: 'Education' },
     
-    // Banking & Transfers
+    // Banking & Transfers - Credit card payments (specific patterns)
+    { keywords: ['ach pmt', 'ach payment', 'ach transfer'], category: 'Transfer' },
+    { keywords: ['american express ach', 'amex ach', 'chase ach', 'discover ach', 'capital one ach', 'citibank ach'], category: 'Transfer' },
+    { keywords: ['payment to chase card', 'payment to american express', 'payment to amex', 'payment to discover', 'payment to capital one'], category: 'Transfer' },
+    { keywords: ['card ending in'], category: 'Transfer' },
     { keywords: ['zelle', 'venmo', 'paypal', 'cash app', 'transfer'], category: 'Transfer' },
     { keywords: ['interest charge', 'late fee', 'overdraft', 'atm fee', 'bank fee', 'service charge', 'annual fee'], category: 'Bank Fees' },
     { keywords: ['interest payment', 'dividend', 'capital gain', 'investment'], category: 'Investments' },
@@ -1518,7 +1522,7 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Get all uncategorized transactions
+    // Get all uncategorized transactions (no user_category_name and either no plaid category or plaid category is null/Uncategorized)
     const { data: transactions, error: fetchError } = await supabase
       .from('transactions')
       .select('id, name, merchant_name, plaid_primary_category, user_category_name')
@@ -1545,8 +1549,8 @@ app.post('/api/transactions/auto-categorize', async (req, res) => {
     let categorizedCount = 0;
 
     for (const tx of transactions) {
-      // Skip if already has a Plaid category
-      if (tx.plaid_primary_category) {
+      // Skip if already has a meaningful Plaid category (not null or "Uncategorized")
+      if (tx.plaid_primary_category && tx.plaid_primary_category !== 'Uncategorized' && tx.plaid_primary_category.toLowerCase() !== 'uncategorized') {
         continue;
       }
 
