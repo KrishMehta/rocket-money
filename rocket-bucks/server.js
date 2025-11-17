@@ -1437,7 +1437,15 @@ app.get('/api/transactions/search', async (req, res) => {
     }
 
     if (user_category_name) {
-      query = query.eq('user_category_name', user_category_name);
+      // Special handling for "Uncategorized" - find transactions with no user category
+      if (user_category_name === 'Uncategorized') {
+        // Find transactions where user_category_name is null AND (plaid_primary_category is null or "Uncategorized")
+        query = query
+          .is('user_category_name', null)
+          .or('plaid_primary_category.is.null,plaid_primary_category.eq.Uncategorized');
+      } else {
+        query = query.eq('user_category_name', user_category_name);
+      }
     }
 
     if (merchant_name) {
