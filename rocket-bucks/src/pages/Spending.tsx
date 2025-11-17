@@ -36,9 +36,9 @@ const Spending = () => {
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         endDate = new Date(now.getFullYear(), now.getMonth(), 0);
       } else {
-        // This month - use end of today to match Transactions page
+        // This month - use today's date (inclusive) to ensure all transactions are included
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        endDate = now; // Use current date/time to include all of today
       }
 
       // Fetch transactions for the selected period
@@ -50,9 +50,21 @@ const Spending = () => {
 
       setTransactions(txData || []);
 
-      // Calculate all metrics
-      calculateMonthlyTrends(txData || []);
-      calculateCategoryBreakdown(txData || []);
+      // Calculate spending first to get the correct value for current month
+      const currentMonthSpending = (txData || [])
+        .filter((tx: any) => {
+          const categoryName = getCategoryName(tx);
+          return tx.transaction_type === 'expense' && 
+                 tx.amount > 0 && 
+                 categoryName !== 'Income' && 
+                 categoryName !== 'Transfer';
+        })
+        .reduce((sum: number, tx: any) => sum + tx.amount, 0);
+
+      // Calculate all metrics using the same spending value for consistency
+      const roundedSpending = Math.round(currentMonthSpending * 100) / 100;
+      calculateMonthlyTrends(txData || [], roundedSpending);
+      calculateCategoryBreakdown(txData || [], roundedSpending);
       calculateTopMerchants(txData || []);
       calculateLargestPurchases(txData || []);
       calculateSummary(txData || [], startDate, endDate);
@@ -64,55 +76,103 @@ const Spending = () => {
     }
   };
 
-  const calculateMonthlyTrends = async (currentTxData: any[]) => {
+  const calculateMonthlyTrends = (currentTxData: any[], currentMonthSpendingValue: number) => {
     try {
-      // Fetch last 6 months of data
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      
-      const { transactions: allTx } = await api.searchTransactions({
-        start_date: sixMonthsAgo.toISOString().split('T')[0],
-        end_date: new Date().toISOString().split('T')[0],
-        limit: 10000,
-      });
-
-      // Group by month
+      // Use the filtered transaction data instead of fetching separately
+      // Group by month - use same filter as spending calculation (exclude Income and Transfer)
       const monthlyData: { [key: string]: number } = {};
-      allTx.forEach((tx: any) => {
-        if (tx.transaction_type === 'expense' && tx.amount > 0) {
+      currentTxData.forEach((tx: any) => {
+        const categoryName = getCategoryName(tx);
+        if (tx.transaction_type === 'expense' && 
+            tx.amount > 0 && 
+            categoryName !== 'Income' && 
+            categoryName !== 'Transfer') {
           const date = new Date(tx.date);
           const monthKey = date.toLocaleDateString('en-US', { month: 'short' });
           monthlyData[monthKey] = (monthlyData[monthKey] || 0) + tx.amount;
         }
       });
 
-      // Convert to chart data (last 6 months)
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      // For the bar chart, we want to show the last 6 months
+      // But we need to fetch all 6 months of data to show historical context
+      // However, we'll calculate November from the current filtered data
       const now = new Date();
-      const chartData = [];
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthName = months[date.getMonth()];
-        chartData.push({
-          month: monthName,
-          amount: monthlyData[monthName] || 0,
+      // Fetch last 6 months for historical context
+      api.searchTransactions({
+        start_date: sixMonthsAgo.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0],
+        limit: 10000,
+      }).then(({ transactions: allTx }) => {
+        // Group by month from all historical data
+        // Use same filter as spending calculation (exclude Income and Transfer)
+        const historicalMonthlyData: { [key: string]: number } = {};
+        allTx?.forEach((tx: any) => {
+          const categoryName = getCategoryName(tx);
+          if (tx.transaction_type === 'expense' && 
+              tx.amount > 0 && 
+              categoryName !== 'Income' && 
+              categoryName !== 'Transfer') {
+            const date = new Date(tx.date);
+            const monthKey = date.toLocaleDateString('en-US', { month: 'short' });
+            historicalMonthlyData[monthKey] = (historicalMonthlyData[monthKey] || 0) + tx.amount;
+          }
         });
-      }
 
-      setMonthlySpending(chartData);
+        // Override current month with the calculated spending value to ensure consistency
+        // This ensures the bar chart matches the summary and pie chart exactly
+        const currentMonthKey = now.toLocaleDateString('en-US', { month: 'short' });
+        historicalMonthlyData[currentMonthKey] = currentMonthSpendingValue;
+
+        // Convert to chart data (last 6 months)
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const chartData = [];
+        
+        for (let i = 5; i >= 0; i--) {
+          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthName = months[date.getMonth()];
+          chartData.push({
+            month: monthName,
+            amount: historicalMonthlyData[monthName] || 0,
+          });
+        }
+
+        setMonthlySpending(chartData);
+      }).catch((error) => {
+        console.error('Error fetching historical data for monthly trends:', error);
+        // Fallback: use only current filtered data
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const chartData = [];
+        const now = new Date();
+        
+        for (let i = 5; i >= 0; i--) {
+          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthName = months[date.getMonth()];
+          chartData.push({
+            month: monthName,
+            amount: monthlyData[monthName] || 0,
+          });
+        }
+        setMonthlySpending(chartData);
+      });
     } catch (error) {
       console.error('Error calculating monthly trends:', error);
     }
   };
 
-  const calculateCategoryBreakdown = (txData: any[]) => {
+  const calculateCategoryBreakdown = (txData: any[], totalSpendingValue: number) => {
     const categoryTotals: { [key: string]: { amount: number; count: number } } = {};
     
-    // Group by category
+    // Group by category - use same filter as spending calculation (exclude Income and Transfer)
     txData.forEach((tx: any) => {
-      if (tx.transaction_type === 'expense' && tx.amount > 0) {
-        const category = tx.user_category_name || tx.plaid_primary_category || 'Uncategorized';
+      const categoryName = getCategoryName(tx);
+      if (tx.transaction_type === 'expense' && 
+          tx.amount > 0 && 
+          categoryName !== 'Income' && 
+          categoryName !== 'Transfer') {
+        const category = categoryName;
         if (!categoryTotals[category]) {
           categoryTotals[category] = { amount: 0, count: 0 };
         }
@@ -121,8 +181,8 @@ const Spending = () => {
       }
     });
 
-    // Convert to array and calculate percentages
-    const totalSpending = Object.values(categoryTotals).reduce((sum, cat) => sum + cat.amount, 0);
+    // Use the total spending value passed in to ensure consistency
+    const totalSpending = totalSpendingValue;
     
     const colors = ['#f97316', '#3b82f6', '#06b6d4', '#8b5cf6', '#ef4444', '#10b981', '#f59e0b', '#6b7280'];
     const categoryArray = Object.entries(categoryTotals)
@@ -134,7 +194,7 @@ const Spending = () => {
         color: colors[index % colors.length],
       }))
       .sort((a, b) => b.spend - a.spend)
-      .slice(0, 8); // Top 8 categories
+      .slice(0, 8); // Top 8 categories for display
 
     setCategoryData(categoryArray);
   };
@@ -209,9 +269,19 @@ const Spending = () => {
       .filter((tx: any) => tx.transaction_type === 'expense' && tx.is_recurring)
       .reduce((sum, tx) => sum + tx.amount, 0);
     
-    const spending = txData
-      .filter((tx: any) => tx.transaction_type === 'expense' && tx.amount > 0)
+    // Spending: all expenses (excluding income and transfers)
+    const spendingRaw = txData
+      .filter((tx: any) => {
+        // Exclude transactions categorized as Income or Transfer
+        const categoryName = getCategoryName(tx);
+        return tx.transaction_type === 'expense' && 
+               tx.amount > 0 && 
+               categoryName !== 'Income' && 
+               categoryName !== 'Transfer';
+      })
       .reduce((sum, tx) => sum + tx.amount, 0);
+    // Round to avoid floating point precision issues
+    const spending = Math.round(spendingRaw * 100) / 100;
 
     const incomeCount = txData.filter((tx: any) => {
       const categoryName = getCategoryName(tx);
@@ -269,7 +339,8 @@ const Spending = () => {
     );
   }
 
-  const totalSpend = categoryData.reduce((sum, cat) => sum + cat.spend, 0);
+  // Use the spending value from summaryData to ensure consistency across all displays
+  const totalSpend = summaryData.spending || categoryData.reduce((sum, cat) => sum + cat.spend, 0);
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
