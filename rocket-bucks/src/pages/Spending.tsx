@@ -325,7 +325,10 @@ const Spending = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="month" stroke="#888" />
                   <YAxis stroke="#888" />
-                  <Tooltip />
+                  <Tooltip 
+                    formatter={(value: number) => `$${value.toFixed(2)}`}
+                    labelFormatter={(label: string) => `${label} amount`}
+                  />
                   <Bar dataKey="amount" fill="#3b82f6" />
                 </BarChart>
               </ResponsiveContainer>
