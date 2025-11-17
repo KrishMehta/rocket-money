@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { api } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -10,6 +11,11 @@ const Dashboard = () => {
   const [upcomingCharges, setUpcomingCharges] = useState<any[]>([]);
   const [spendingData, setSpendingData] = useState<any[]>([]);
   const [monthlySpend, setMonthlySpend] = useState(0);
+  const { user } = useAuth();
+  const firstName =
+    user?.full_name?.trim()?.split(' ')[0] ||
+    user?.email?.split('@')[0] ||
+    'there';
   const [totalTransactions, setTotalTransactions] = useState(0);
 
   useEffect(() => {
@@ -172,7 +178,7 @@ const Dashboard = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Good evening, Krish</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">Good evening, {firstName}</h1>
 
       {/* Connect Accounts Banner - Show only if no accounts */}
       {accounts.length === 0 && (
