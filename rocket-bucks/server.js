@@ -61,20 +61,68 @@ const plaidClient = new PlaidApi(configuration);
 function autoCategorizeTransaction(transactionName, merchantName) {
   const searchText = `${transactionName} ${merchantName || ''}`.toLowerCase();
   
-  // Category mappings
+  // Category mappings - order matters! More specific patterns should come first
   const categoryMappings = [
-    { keywords: ['uber eats', 'doordash', 'grubhub', 'postmates'], category: 'Food and Drink' },
-    { keywords: ['mcdonalds', 'burger king', 'taco bell', 'chipotle', 'five guys', 'raising cane', 'starbucks', 'dunkin'], category: 'Restaurants' },
-    { keywords: ['whole foods', 'trader joe', 'safeway', 'kroger', 'grocery', 'supermarket'], category: 'Groceries' },
-    { keywords: ['uber', 'lyft', 'taxi', 'cab'], category: 'Transportation' },
-    { keywords: ['shell', 'chevron', 'exxon', 'mobil', 'gas', 'fuel'], category: 'Gas Stations' },
-    { keywords: ['amazon', 'ebay', 'target', 'walmart', 'best buy'], category: 'Shopping' },
-    { keywords: ['netflix', 'hulu', 'disney+', 'hbo', 'spotify', 'apple music'], category: 'Entertainment' },
-    { keywords: ['airbnb', 'hotel', 'marriott', 'hilton'], category: 'Hotels' },
-    { keywords: ['cvs', 'walgreens', 'pharmacy'], category: 'Pharmacy' },
-    { keywords: ['at&t', 'verizon', 't-mobile', 'comcast', 'xfinity'], category: 'Bills & Utilities' },
-    { keywords: ['zelle', 'venmo', 'paypal', 'transfer', 'payment'], category: 'Transfer' },
-    { keywords: ['interest', 'fee', 'overdraft', 'atm'], category: 'Bank Fees' },
+    // Credits and refunds
+    { keywords: ['credit', 'refund', 'cashback', 'reward'], category: 'Income' },
+    
+    // Entertainment & Streaming
+    { keywords: ['netflix', 'hulu', 'disney', 'hbo', 'peacock', 'paramount', 'showtime', 'spotify', 'apple music', 'youtube premium', 'twitch'], category: 'Entertainment' },
+    { keywords: ['amc', 'regal', 'cinemark', 'movie', 'cinema'], category: 'Entertainment' },
+    { keywords: ['entertainment', 'streaming'], category: 'Entertainment' },
+    
+    // Food & Dining - most specific first
+    { keywords: ['uber eats', 'doordash', 'grubhub', 'postmates', 'seamless'], category: 'Food and Drink' },
+    { keywords: ['mcdonalds', 'burger king', 'taco bell', 'chipotle', 'five guys', 'raising cane', 'starbucks', 'dunkin', 'subway', 'panera', 'chick-fil-a', 'shake shack', 'in-n-out', 'popeyes', 'kfc', 'wendys', 'cooks & soldiers', 'cooks and soldiers'], category: 'Restaurants' },
+    { keywords: ['restaurant', 'cafe', 'coffee', 'diner', 'bistro', 'grill', 'pizza', 'sushi', 'bar', 'pub'], category: 'Restaurants' },
+    { keywords: ['dining', 'food', 'meal'], category: 'Food and Drink' },
+    { keywords: ['whole foods', 'trader joe', 'safeway', 'kroger', 'publix', 'albertsons', 'heb', 'wegmans', 'aldi', 'costco', 'grocery', 'supermarket', 'market'], category: 'Groceries' },
+    
+    // Transportation
+    { keywords: ['uber', 'lyft', 'taxi', 'cab', 'ride'], category: 'Transportation' },
+    { keywords: ['shell', 'chevron', 'exxon', 'mobil', 'bp', 'gas', 'fuel', 'petrol'], category: 'Gas Stations' },
+    { keywords: ['parking', 'toll'], category: 'Transportation' },
+    { keywords: ['transit', 'metro', 'bus', 'train', 'subway', 'rail'], category: 'Transportation' },
+    
+    // Travel
+    { keywords: ['travel', 'airline', 'airways', 'flight', 'united', 'american airlines', 'delta', 'southwest', 'jetblue'], category: 'Travel' },
+    { keywords: ['airbnb', 'hotel', 'motel', 'marriott', 'hilton', 'hyatt', 'ihg', 'expedia', 'booking'], category: 'Hotels' },
+    
+    // Shopping
+    { keywords: ['amazon', 'ebay', 'etsy', 'target', 'walmart', 'best buy', 'apple store', 'nike', 'adidas'], category: 'Shopping' },
+    { keywords: ['shop', 'store', 'retail'], category: 'Shopping' },
+    
+    // Technology & Software
+    { keywords: ['cursor', 'github', 'openai', 'chatgpt', 'adobe', 'microsoft', 'google', 'aws', 'azure', 'digitalocean', 'heroku', 'vercel', 'netlify'], category: 'Service' },
+    { keywords: ['software', 'saas', 'app', 'digital'], category: 'Service' },
+    
+    // Recreation & Sports
+    { keywords: ['golf', 'gym', 'fitness', 'sport', 'athletic', 'workout'], category: 'Recreation' },
+    { keywords: ['game', 'gaming', 'steam', 'playstation', 'xbox', 'nintendo'], category: 'Recreation' },
+    
+    // Healthcare
+    { keywords: ['cvs', 'walgreens', 'rite aid', 'pharmacy', 'drug', 'prescription'], category: 'Pharmacy' },
+    { keywords: ['hospital', 'clinic', 'medical', 'doctor', 'dentist', 'dental', 'physician', 'healthcare', 'health'], category: 'Healthcare' },
+    
+    // Bills & Utilities
+    { keywords: ['at&t', 'verizon', 't-mobile', 'sprint', 'comcast', 'xfinity', 'spectrum', 'cox', 'directv', 'dish'], category: 'Bills & Utilities' },
+    { keywords: ['electric', 'electricity', 'gas', 'water', 'power', 'energy', 'utility', 'utilities'], category: 'Utilities' },
+    { keywords: ['internet', 'cable', 'phone', 'mobile', 'wireless'], category: 'Bills & Utilities' },
+    
+    // Professional Services
+    { keywords: ['insurance', 'geico', 'progressive', 'state farm'], category: 'Insurance' },
+    { keywords: ['lawyer', 'attorney', 'legal', 'tax', 'accountant', 'cpa', 'negotiate', 'negotiation', 'rkt money', 'rocket money'], category: 'Services' },
+    
+    // Education
+    { keywords: ['tuition', 'school', 'college', 'university', 'coursera', 'udemy', 'education'], category: 'Education' },
+    
+    // Banking & Transfers
+    { keywords: ['zelle', 'venmo', 'paypal', 'cash app', 'transfer'], category: 'Transfer' },
+    { keywords: ['interest charge', 'late fee', 'overdraft', 'atm fee', 'bank fee', 'service charge', 'annual fee'], category: 'Bank Fees' },
+    { keywords: ['interest payment', 'dividend', 'capital gain', 'investment'], category: 'Investments' },
+    
+    // Payments - very generic, check last
+    { keywords: ['payment to', 'payment from'], category: 'Transfer' },
   ];
   
   // Check for matches
