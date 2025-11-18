@@ -11,10 +11,17 @@ const NetWorth = () => {
   const [totalAssets, setTotalAssets] = useState(0);
   const [totalDebts, setTotalDebts] = useState(0);
   const [netWorth, setNetWorth] = useState(0);
+  const [selectedPeriod, setSelectedPeriod] = useState<'1M' | '3M' | '6M' | '1Y' | 'ALL'>('6M');
 
   useEffect(() => {
     loadNetWorthData();
   }, []);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      calculateHistoricalNetWorth(accounts, selectedPeriod).catch(console.error);
+    }
+  }, [selectedPeriod, accounts]);
 
   const loadNetWorthData = async () => {
     try {
@@ -25,8 +32,8 @@ const NetWorth = () => {
       // Calculate totals
       calculateTotals(accountsData || []);
       
-      // Calculate historical net worth (last 6 months)
-      await calculateHistoricalNetWorth(accountsData || []);
+      // Calculate historical net worth based on selected period
+      await calculateHistoricalNetWorth(accountsData || [], selectedPeriod);
 
     } catch (error) {
       console.error('Error loading net worth data:', error);
@@ -57,7 +64,7 @@ const NetWorth = () => {
     setNetWorth(assets - debts);
   };
 
-  const calculateHistoricalNetWorth = async (accountsData: any[]) => {
+  const calculateHistoricalNetWorth = async (accountsData: any[], period: '1M' | '3M' | '6M' | '1Y' | 'ALL' = '6M') => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const now = new Date();
     const chartData = [];
@@ -72,6 +79,14 @@ const NetWorth = () => {
       .reduce((sum, a) => sum + Math.abs(a.balance_current || 0), 0);
     
     const currentNetWorth = currentAssets - currentDebts;
+
+    // Calculate number of months to show based on selected period
+    let monthsToShow = 6; // default
+    if (period === '1M') monthsToShow = 1;
+    else if (period === '3M') monthsToShow = 3;
+    else if (period === '6M') monthsToShow = 6;
+    else if (period === '1Y') monthsToShow = 12;
+    else if (period === 'ALL') monthsToShow = 12; // For now, limit to 12 months until we have more historical data
 
     // Only show data we actually have - just the current month
     // In the future, if we have historical balance snapshots, we can add those here
@@ -255,11 +270,12 @@ const NetWorth = () => {
                 <>
                   <div className="mb-4">
                     <div className="flex gap-2 justify-end">
-                      {['1M', '3M', '6M', '1Y', 'ALL'].map((period) => (
+                      {(['1M', '3M', '6M', '1Y', 'ALL'] as const).map((period) => (
                         <button
                           key={period}
-                          className={`px-3 py-1 text-xs font-medium rounded ${
-                            period === '6M'
+                          onClick={() => setSelectedPeriod(period)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            period === selectedPeriod
                               ? 'bg-gray-900 text-white'
                               : 'text-gray-600 hover:bg-gray-100'
                           }`}
