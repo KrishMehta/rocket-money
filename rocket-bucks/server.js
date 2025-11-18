@@ -356,7 +356,7 @@ async function buildFinancialContext(supabase, userId) {
         .limit(20),
       supabase
         .from('transactions')
-        .select('amount, date, name, merchant_name, plaid_primary_category, transaction_type')
+        .select('amount, date, name, merchant_name, plaid_primary_category, user_category_name, transaction_type, is_transfer')
         .eq('user_id', userId)
         .gte('date', sixtyDaysAgo.toISOString().split('T')[0])
         .lte('date', now.toISOString().split('T')[0])
@@ -411,10 +411,46 @@ async function buildFinancialContext(supabase, userId) {
       .sort((a, b) => b.balance - a.balance)
       .slice(0, 5);
 
-    const expenses = transactions.filter(
-      (tx) => tx.transaction_type === 'expense' && normalizeAmount(tx.amount) > 0 && tx.date
-    );
-    const incomes = transactions.filter((tx) => tx.transaction_type === 'income' && tx.date);
+    // Helper function to get category name (same logic as Spending page)
+    const getCategoryName = (tx) => {
+      return tx.user_category_name ||
+             tx.plaid_primary_category ||
+             'Uncategorized';
+    };
+
+    // Filter expenses: exclude transfers and income-categorized transactions
+    // This matches the Spending page logic
+    // Also exclude credit card payments (even if not categorized as Transfer)
+    const expenses = transactions.filter((tx) => {
+      const categoryName = getCategoryName(tx);
+      const txName = (tx.name || '').toLowerCase();
+      const merchantName = (tx.merchant_name || '').toLowerCase();
+      const fullName = `${txName} ${merchantName}`;
+      
+      // Check if this looks like a credit card payment or transfer
+      const isCreditCardPayment = 
+        /payment.*(american express|amex|chase|discover|capital one|citibank|card)/i.test(fullName) ||
+        /(american express|amex|chase|discover|capital one|citibank).*payment/i.test(fullName) ||
+        /ach.*(payment|transfer)/i.test(fullName) ||
+        /payment.*thank you/i.test(fullName) ||
+        /online transfer/i.test(fullName) ||
+        /zelle|venmo|paypal|cash app/i.test(fullName);
+      
+      return tx.transaction_type === 'expense' && 
+             normalizeAmount(tx.amount) > 0 && 
+             tx.date &&
+             !tx.is_transfer &&
+             !isCreditCardPayment &&
+             categoryName !== 'Income' && 
+             categoryName !== 'Transfer';
+    });
+
+    // Filter income: only count transactions categorized as "Income"
+    // This matches the Spending page logic (not just transaction_type === 'income')
+    const incomes = transactions.filter((tx) => {
+      const categoryName = getCategoryName(tx);
+      return categoryName === 'Income' && tx.date;
+    });
 
     const expensesLast30 = expenses.filter((tx) => {
       const txDate = tx.date ? new Date(tx.date) : null;
@@ -450,7 +486,7 @@ async function buildFinancialContext(supabase, userId) {
 
     const categoryMap = {};
     expensesLast30.forEach((tx) => {
-      const category = tx.plaid_primary_category || 'Other';
+      const category = getCategoryName(tx) || 'Other';
       const amount = normalizeAmount(tx.amount);
       categoryMap[category] = (categoryMap[category] || 0) + amount;
     });
