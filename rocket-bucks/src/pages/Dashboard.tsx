@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { api } from '../utils/api';
@@ -18,6 +18,9 @@ const Dashboard = () => {
     user?.email?.split('@')[0] ||
     'there';
   const [totalTransactions, setTotalTransactions] = useState(0);
+  
+  // Ref to prevent duplicate measurements (React StrictMode double-invocation)
+  const isMeasuringRef = useRef(false);
 
   // Helper function to get category name (same as Spending page)
   const getCategoryName = (transaction: any) => {
@@ -28,7 +31,25 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
+    // Prevent duplicate measurements (React StrictMode double-invocation)
+    if (isMeasuringRef.current) {
+      return;
+    }
+    
+    isMeasuringRef.current = true;
     loadDashboardData();
+    
+    // Cleanup function to reset the flag when component unmounts
+    return () => {
+      // Only reset if we're still measuring (component unmounted during load)
+      // Otherwise, let the finally block handle it
+      if (isMeasuringRef.current) {
+        // Small delay to ensure measurement completes
+        setTimeout(() => {
+          isMeasuringRef.current = false;
+        }, 100);
+      }
+    };
   }, []);
 
   const loadDashboardData = async () => {
@@ -128,6 +149,8 @@ const Dashboard = () => {
       });
     } finally {
       setLoading(false);
+      // Reset measuring flag after measurement completes
+      isMeasuringRef.current = false;
     }
   };
 
