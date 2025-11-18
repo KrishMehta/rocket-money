@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { latencyTracker } from '../utils/latencyTracker';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, Area, AreaChart } from 'recharts';
 
 const Performance = () => {
   const [stats, setStats] = useState(latencyTracker.getStats());
@@ -173,34 +173,103 @@ const Performance = () => {
 
       {/* Latency Trend Chart */}
       {chartData.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Latency Trend (Last 20 Measurements)</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Latency Trend</h2>
+              <p className="text-sm text-gray-500 mt-1">Last 20 Measurements</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
+                <span className="text-gray-600">Total Latency</span>
+              </div>
+              {stats.average > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-0.5 bg-orange-400"></div>
+                  <span className="text-gray-600">Average ({formatLatency(stats.average)})</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={400}>
+            <AreaChart data={chartData} margin={{ top: 20, right: 80, left: 20, bottom: 40 }}>
+              <defs>
+                <linearGradient id="colorLatency" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis 
                 dataKey="index" 
-                stroke="#888"
-                label={{ value: 'Measurement #', position: 'insideBottom', offset: -5 }}
+                stroke="#6b7280"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                label={{ value: 'Measurement #', position: 'bottom', offset: 10, style: { textAnchor: 'middle', fill: '#6b7280', fontSize: 12 } }}
               />
               <YAxis 
-                stroke="#888"
-                label={{ value: 'Latency (ms)', angle: -90, position: 'insideLeft' }}
+                stroke="#6b7280"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                label={{ value: 'Latency (ms)', angle: -90, position: 'left', offset: 10, style: { textAnchor: 'middle', fill: '#6b7280', fontSize: 12 } }}
               />
               <Tooltip 
-                formatter={(value: number) => `${value.toFixed(0)}ms`}
+                contentStyle={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  padding: '12px',
+                }}
+                formatter={(value: number) => [`${value.toFixed(0)}ms`, 'Total Latency']}
                 labelFormatter={(index) => `Measurement #${index}`}
+                labelStyle={{ color: '#374151', fontWeight: '600', marginBottom: '4px' }}
+                itemStyle={{ color: '#3b82f6', fontWeight: 'bold' }}
               />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="total" 
-                stroke="#3b82f6" 
-                strokeWidth={2}
-                name="Total Latency"
-                dot={{ r: 3 }}
+              {stats.average > 0 && (
+                <ReferenceLine 
+                  y={stats.average} 
+                  stroke="#f97316" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  label={{ 
+                    value: `Avg: ${formatLatency(stats.average)}`, 
+                    position: 'right', 
+                    fill: '#f97316', 
+                    fontSize: 11,
+                    offset: 5
+                  }}
+                />
+              )}
+              {stats.p95 > 0 && (
+                <ReferenceLine 
+                  y={stats.p95} 
+                  stroke="#ef4444" 
+                  strokeWidth={1.5}
+                  strokeDasharray="3 3"
+                  strokeOpacity={0.6}
+                  label={{ 
+                    value: `P95: ${formatLatency(stats.p95)}`, 
+                    position: 'right', 
+                    fill: '#ef4444', 
+                    fontSize: 10,
+                    offset: 5
+                  }}
+                />
+              )}
+              <Area
+                type="monotone"
+                dataKey="total"
+                stroke="#3b82f6"
+                strokeWidth={3}
+                fill="url(#colorLatency)"
+                dot={{ fill: '#3b82f6', r: 4, strokeWidth: 2, stroke: '#fff' }}
+                activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
