@@ -64,7 +64,7 @@ const NetWorth = () => {
     setNetWorth(assets - debts);
   };
 
-  const calculateHistoricalNetWorth = async (accountsData: any[], period: '1M' | '3M' | '6M' | '1Y' | 'ALL' = '6M') => {
+  const calculateHistoricalNetWorth = async (accountsData: any[], _period: '1M' | '3M' | '6M' | '1Y' | 'ALL' = '6M') => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const now = new Date();
     const chartData = [];
@@ -79,14 +79,6 @@ const NetWorth = () => {
       .reduce((sum, a) => sum + Math.abs(a.balance_current || 0), 0);
     
     const currentNetWorth = currentAssets - currentDebts;
-
-    // Calculate number of months to show based on selected period
-    let monthsToShow = 6; // default
-    if (period === '1M') monthsToShow = 1;
-    else if (period === '3M') monthsToShow = 3;
-    else if (period === '6M') monthsToShow = 6;
-    else if (period === '1Y') monthsToShow = 12;
-    else if (period === 'ALL') monthsToShow = 12; // For now, limit to 12 months until we have more historical data
 
     // Only show data we actually have - just the current month
     // In the future, if we have historical balance snapshots, we can add those here
