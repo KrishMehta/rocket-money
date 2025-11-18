@@ -6,7 +6,6 @@ const Spending = () => {
   const [activeTab, setActiveTab] = useState<'lastMonth' | 'thisMonth' | 'custom'>('thisMonth');
   const [customPeriod, setCustomPeriod] = useState<'weekly' | 'monthly' | 'quarterly' | 'yearly' | null>(null);
   const [loading, setLoading] = useState(true);
-  const [transactions, setTransactions] = useState<any[]>([]);
   const [monthlySpending, setMonthlySpending] = useState<any[]>([]);
   const [categoryData, setCategoryData] = useState<any[]>([]);
   const [frequentMerchants, setFrequentMerchants] = useState<any[]>([]);
@@ -81,7 +80,6 @@ const Spending = () => {
         limit: 10000,
       });
 
-      setTransactions(txData || []);
 
       // Calculate spending first to get the correct value for the selected period
       const periodSpending = (txData || [])
@@ -108,7 +106,7 @@ const Spending = () => {
 
       // Calculate all metrics using the same spending value for consistency
       const roundedSpending = Math.round(periodSpending * 100) / 100;
-      calculateMonthlyTrends(txData || [], roundedSpending, targetMonthKey, activeTab, customPeriod, startDate, endDate);
+      calculateMonthlyTrends(txData || [], roundedSpending, targetMonthKey, activeTab, customPeriod, endDate);
       calculateCategoryBreakdown(txData || [], roundedSpending);
       calculateTopMerchants(txData || []);
       calculateLargestPurchases(txData || []);
@@ -127,7 +125,6 @@ const Spending = () => {
     targetMonthKey: string | null,
     activeTab: string,
     customPeriod: string | null,
-    startDate: Date,
     endDate: Date
   ) => {
     try {
@@ -211,7 +208,6 @@ const Spending = () => {
           });
 
           // Generate all days of the current month
-          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
           const currentDay = now.getDate();
           
           // Show days from start of month to today

@@ -290,7 +290,7 @@ const Transactions = () => {
   const updateTransactionCategory = async (transactionId: string, categoryName: string) => {
     try {
       await api.updateTransaction(transactionId, {
-        user_category_name: categoryName || null,
+        user_category_name: categoryName || undefined,
       });
       console.log(`✅ Updated transaction ${transactionId} category to ${categoryName}`);
       setEditingTransaction(null);

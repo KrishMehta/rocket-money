@@ -5,7 +5,6 @@ import { api } from '../utils/api';
 const Recurring = () => {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'viewAll' | 'calendar'>('upcoming');
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [recurringTransactions, setRecurringTransactions] = useState<any[]>([]);
   const [monthlyData, setMonthlyData] = useState<any[]>([]);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -57,27 +56,7 @@ const Recurring = () => {
     }
   };
 
-  const syncRecurringFromPlaid = async () => {
-    try {
-      setSyncing(true);
-      setSyncMessage(null);
-      console.log('🔄 Syncing recurring transactions from Plaid...');
-      
-      const result = await api.syncRecurringTransactions();
-      
-      console.log('✅ Recurring transactions synced:', result.message);
-      setSyncMessage(`✅ ${result.message}`);
-      
-      // Reload recurring data
-      loadRecurringData();
-    } catch (error: any) {
-      console.error('❌ Error syncing recurring transactions:', error);
-      setSyncMessage(`❌ ${error.message || 'Failed to sync recurring transactions'}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
+  
   // Helper function to calculate yearly amount based on frequency
   const calculateYearlyAmount = (amount: number, frequency: string): number => {
     if (!amount || !frequency) return 0;
@@ -412,19 +391,15 @@ const Recurring = () => {
     
     let subscriptions = recurringTransactions.filter(r => isSubscription(r));
     let bills = recurringTransactions.filter(r => !isSubscription(r) && r.transaction_type === 'expense');
-    let creditCards = recurringTransactions.filter(r => r.name?.toLowerCase().includes('credit card'));
     
     // Apply search filter
     subscriptions = filterBySearch(subscriptions);
     bills = filterBySearch(bills);
-    creditCards = filterBySearch(creditCards);
     
     // Apply sorting
     subscriptions = sortItems(subscriptions);
     bills = sortItems(bills);
-    creditCards = sortItems(creditCards);
-    
-    return { subscriptions, bills, creditCards };
+    return { subscriptions, bills };
   };
 
   const getUpcomingCharges = () => {
@@ -438,7 +413,7 @@ const Recurring = () => {
     return { next7Days, comingLater };
   };
 
-  const { subscriptions, bills, creditCards } = groupByType();
+  const { subscriptions, bills } = groupByType();
   const { next7Days, comingLater } = getUpcomingCharges();
 
   // Calendar data - map recurring to calendar events
@@ -1034,4 +1009,6 @@ const Recurring = () => {
 };
 
 export default Recurring;
+
+
 
