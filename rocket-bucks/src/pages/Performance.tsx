@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { latencyTracker } from '../utils/latencyTracker';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, Area, AreaChart } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
 
 const Performance = () => {
   const [stats, setStats] = useState(latencyTracker.getStats());

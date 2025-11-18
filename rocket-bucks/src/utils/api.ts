@@ -156,6 +156,7 @@ export const api = {
     item_id: string;
     accounts: any[];
     institution_name?: string;
+    transactions_synced?: boolean;
   }> => {
     const response = await fetch(`${getApiUrl()}/exchange_public_token`, {
       method: 'POST',

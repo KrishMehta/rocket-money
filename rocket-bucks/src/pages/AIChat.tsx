@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import type { KeyboardEvent } from 'react';
 import { api } from '../utils/api';
 
 interface Message {
@@ -224,7 +225,7 @@ const AIChat = () => {
       .map((msg) => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
         content: msg.text,
-      }));
+      })) as { role: 'user' | 'assistant'; content: string }[];
 
     try {
       const response = await api.askFinancialAdvisor({

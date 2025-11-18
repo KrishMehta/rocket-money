@@ -120,7 +120,7 @@ const Dashboard = () => {
       const spendingTrendsStartTime = performance.now();
       // Calculate monthly spending trends (last 6 months)
       // This also calculates and sets the current month spending for consistency
-      await calculateSpendingTrends(transactionsRes.transactions || []);
+      await calculateSpendingTrends();
       const spendingTrendsLatency = performance.now() - spendingTrendsStartTime;
 
       // Calculate total workflow latency
@@ -154,7 +154,7 @@ const Dashboard = () => {
     }
   };
 
-  const calculateSpendingTrends = async (recentTx: any[]) => {
+  const calculateSpendingTrends = async () => {
     try {
       const now = new Date();
       
@@ -163,7 +163,6 @@ const Dashboard = () => {
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
       
       // Use exact same date range calculation as Spending page for "This Month"
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const endDate = now; // Same as Spending page: endDate = now
       
       const { transactions } = await api.searchTransactions({
@@ -174,7 +173,6 @@ const Dashboard = () => {
 
       // Calculate spending for each month using exact month boundaries (same as Spending page)
       const monthlyData: { [key: string]: number } = {};
-      const todayDateStr = now.toISOString().split('T')[0]; // Same date format as API
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       
       // Calculate spending for each of the last 5 months
@@ -243,53 +241,11 @@ const Dashboard = () => {
       console.error('Error calculating spending trends:', error);
     }
   };
-
-  const calculateMonthlySpend = async () => {
-    try {
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      
-      const { transactions } = await api.searchTransactions({
-        start_date: firstDayOfMonth.toISOString().split('T')[0],
-        end_date: now.toISOString().split('T')[0],
-        transaction_type: 'expense',
-        limit: 10000,
-      });
-
-      // Exclude Income and Transfer categories, same as Spending page
-      const spendingRaw = transactions
-        .filter((tx: any) => {
-          const categoryName = getCategoryName(tx);
-          return tx.transaction_type === 'expense' &&
-                 tx.amount > 0 &&
-                 categoryName !== 'Income' &&
-                 categoryName !== 'Transfer';
-        })
-        .reduce((sum: number, tx: any) => sum + tx.amount, 0);
-      
-      // Round to 2 decimal places to avoid floating point precision issues
-      const total = Math.round(spendingRaw * 100) / 100;
-      setMonthlySpend(total);
-    } catch (error) {
-      console.error('Error calculating monthly spend:', error);
-    }
-  };
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
   };
 
-  const getAccountIcon = (account: any) => {
-    if (account.type === 'depository') {
-      if (account.subtype === 'checking') return '🏦';
-      if (account.subtype === 'savings') return '💰';
-      return '🏦';
-    }
-    if (account.type === 'credit') return '💳';
-    if (account.type === 'investment') return '📈';
-    return '💵';
-  };
 
   const groupAccountsByType = () => {
     const checking = accounts

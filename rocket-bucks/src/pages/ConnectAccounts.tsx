@@ -15,7 +15,6 @@ interface Account {
 const ConnectAccounts = () => {
   const [connectedAccounts, setConnectedAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
 
   // Load existing accounts from database
   useEffect(() => {
@@ -25,8 +24,6 @@ const ConnectAccounts = () => {
         setConnectedAccounts(data.accounts || []);
       } catch (error) {
         console.error('Error loading accounts:', error);
-      } finally {
-        setIsLoadingAccounts(false);
       }
     };
 
