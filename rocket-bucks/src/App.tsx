@@ -13,6 +13,7 @@ import Transactions from './pages/Transactions';
 import AIChat from './pages/AIChat';
 import ConnectAccounts from './pages/ConnectAccounts';
 import DeleteAccount from './pages/DeleteAccount';
+import Performance from './pages/Performance';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
           <Route path="/ai-chat" element={<AIChat />} />
           <Route path="/connect-accounts" element={<ConnectAccounts />} />
           <Route path="/deleteaccount" element={<DeleteAccount />} />
+          <Route path="/performance" element={<Performance />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </Layout>

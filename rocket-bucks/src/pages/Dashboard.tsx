@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Link } from 'react-router-dom';
 import { api } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import { latencyTracker } from '../utils/latencyTracker';
 
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,9 @@ const Dashboard = () => {
   }, []);
 
   const loadDashboardData = async () => {
+    // Start measuring total workflow latency
+    const workflowStartTime = performance.now();
+    
     try {
       setLoading(true);
       
@@ -38,16 +42,40 @@ const Dashboard = () => {
       const now = new Date();
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       
-      // Fetch all data in parallel
-      const [accountsRes, transactionsRes, recurringRes] = await Promise.all([
-        api.getAccounts(),
-        api.searchTransactions({ 
-          limit: 10,
-          start_date: firstDayOfMonth.toISOString().split('T')[0],
-          end_date: now.toISOString().split('T')[0],
-        }),
-        api.getRecurring({ upcoming_only: true }), // Don't filter by active_only
+      // Measure individual API call latencies (wrapped to track each promise)
+      const accountsStartTime = performance.now();
+      const accountsPromise = api.getAccounts().then((res) => {
+        return { res, latency: performance.now() - accountsStartTime };
+      });
+      
+      const transactionsStartTime = performance.now();
+      const transactionsPromise = api.searchTransactions({ 
+        limit: 10,
+        start_date: firstDayOfMonth.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0],
+      }).then((res) => {
+        return { res, latency: performance.now() - transactionsStartTime };
+      });
+      
+      const recurringStartTime = performance.now();
+      const recurringPromise = api.getRecurring({ upcoming_only: true }).then((res) => {
+        return { res, latency: performance.now() - recurringStartTime };
+      });
+      
+      // Wait for all parallel API calls to complete
+      const [accountsResult, transactionsResult, recurringResult] = await Promise.all([
+        accountsPromise,
+        transactionsPromise,
+        recurringPromise,
       ]);
+      
+      // Extract results and latencies
+      const accountsRes = accountsResult.res;
+      const accountsLatency = accountsResult.latency;
+      const transactionsRes = transactionsResult.res;
+      const transactionsLatency = transactionsResult.latency;
+      const recurringRes = recurringResult.res;
+      const recurringLatency = recurringResult.latency;
 
       // Set accounts
       setAccounts(accountsRes.accounts || []);
@@ -67,12 +95,37 @@ const Dashboard = () => {
       }) || [];
       setUpcomingCharges(next30Days);
 
+      // Measure spending trends calculation latency
+      const spendingTrendsStartTime = performance.now();
       // Calculate monthly spending trends (last 6 months)
       // This also calculates and sets the current month spending for consistency
       await calculateSpendingTrends(transactionsRes.transactions || []);
+      const spendingTrendsLatency = performance.now() - spendingTrendsStartTime;
+
+      // Calculate total workflow latency
+      const totalLatency = performance.now() - workflowStartTime;
+      
+      // Record latency metrics
+      latencyTracker.record({
+        totalLatency,
+        accountsLatency,
+        transactionsLatency,
+        recurringLatency,
+        spendingTrendsLatency,
+      });
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      
+      // Still record latency even on error (for monitoring error scenarios)
+      const totalLatency = performance.now() - workflowStartTime;
+      latencyTracker.record({
+        totalLatency,
+        accountsLatency: 0,
+        transactionsLatency: 0,
+        recurringLatency: 0,
+        spendingTrendsLatency: 0,
+      });
     } finally {
       setLoading(false);
     }
