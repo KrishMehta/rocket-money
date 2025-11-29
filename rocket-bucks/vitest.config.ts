@@ -14,6 +14,7 @@ export default defineConfig({
       exclude: [
         'src/test/**',
         'src/__tests__/**',
+        'src/main.tsx',
         'server.js',
         'api/**',
         'lib/**',

@@ -350,4 +350,249 @@ describe('api utility', () => {
     expect(headers).not.toHaveProperty('Authorization');
     expect(headers).toHaveProperty('Content-Type', 'application/json');
   });
+
+  // Error handling tests
+  it('handles getCurrentUser error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+      }),
+    );
+    await expect(api.getCurrentUser()).rejects.toThrow(/Unauthorized/);
+  });
+
+  it('handles exchangePublicToken error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 400,
+      }),
+    );
+    await expect(api.exchangePublicToken('bad-token')).rejects.toThrow(/Invalid token/);
+  });
+
+  it('handles getAccounts error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
+      }),
+    );
+    await expect(api.getAccounts()).rejects.toThrow(/Not found/);
+  });
+
+  it('handles getTransactions error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Server error' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.getTransactions()).rejects.toThrow(/Server error/);
+  });
+
+  it('handles syncTransactions error with status and data', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ message: 'Rate limit exceeded', hours_remaining: 2 }),
+        { status: 429 },
+      ),
+    );
+    try {
+      await api.syncTransactions();
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.message).toContain('Rate limit exceeded');
+      expect(error.status).toBe(429);
+      expect(error.data.hours_remaining).toBe(2);
+    }
+  });
+
+  it('handles searchTransactions error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Search failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.searchTransactions()).rejects.toThrow(/Search failed/);
+  });
+
+  it('handles updateTransaction error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Update failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.updateTransaction('tx-1', {})).rejects.toThrow(/Update failed/);
+  });
+
+  it('handles deleteTransaction error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Delete failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.deleteTransaction('tx-1')).rejects.toThrow(/Delete failed/);
+  });
+
+  it('handles getRecurring with active_only option', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ recurring: [] }), { status: 200 }),
+    );
+
+    await api.getRecurring({ active_only: true });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('active_only=true');
+  });
+
+  it('handles getRecurring error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
+      }),
+    );
+    await expect(api.getRecurring()).rejects.toThrow(/Not found/);
+  });
+
+  it('handles getCategories error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Server error' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.getCategories()).rejects.toThrow(/Server error/);
+  });
+
+  it('handles cleanupDuplicateAccounts', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, message: 'Cleaned', removed: 3 }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await api.cleanupDuplicateAccounts();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3001/api/accounts/cleanup-duplicates',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.removed).toBe(3);
+  });
+
+  it('handles cleanupDuplicateAccounts error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Cleanup failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.cleanupDuplicateAccounts()).rejects.toThrow(/Cleanup failed/);
+  });
+
+  it('syncs recurring transactions', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Synced recurring',
+          recurring_count: 5,
+          synced_at: '2024-01-01',
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await api.syncRecurringTransactions();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3001/api/recurring/sync',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(result.recurring_count).toBe(5);
+  });
+
+  it('handles syncRecurringTransactions error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Sync failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.syncRecurringTransactions()).rejects.toThrow(/Sync failed/);
+  });
+
+  it('handles askFinancialAdvisor error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'AI unavailable' }), {
+        status: 500,
+      }),
+    );
+    await expect(
+      api.askFinancialAdvisor({ message: 'Hello' }),
+    ).rejects.toThrow(/AI unavailable/);
+  });
+
+  it('handles askFinancialAdvisor error when body parsing fails', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Invalid JSON', { status: 500 }),
+    );
+    await expect(
+      api.askFinancialAdvisor({ message: 'Hello' }),
+    ).rejects.toThrow(/Failed to generate AI advice/);
+  });
+
+  it('handles autoCategorizeTransactions error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Categorization failed' }), {
+        status: 500,
+      }),
+    );
+    await expect(api.autoCategorizeTransactions()).rejects.toThrow(/Categorization failed/);
+  });
+
+  it('handles Google login with text error response', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Internal Server Error', {
+        status: 500,
+        statusText: 'Internal Server Error',
+      }),
+    );
+    await expect(api.googleLogin()).rejects.toThrow(/Internal Server Error/);
+  });
+
+  it('handles Google login network error', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('Network error'));
+    await expect(api.googleLogin()).rejects.toThrow(/Network error/);
+  });
+
+  it('handles createLinkToken with text error response', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Service Unavailable', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      }),
+    );
+    await expect(api.createLinkToken()).rejects.toThrow(/Service Unavailable/);
+  });
+
+  it('handles createLinkToken network error', async () => {
+    const networkError = new TypeError('Failed to fetch');
+    fetchMock.mockRejectedValueOnce(networkError);
+    await expect(api.createLinkToken()).rejects.toThrow(/Network error/);
+  });
+
+  it('handles createLinkToken other fetch errors', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('Unknown error'));
+    await expect(api.createLinkToken()).rejects.toThrow(/Unknown error/);
+  });
+
+  it('handles search with no filters', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ transactions: [], count: 0 }), {
+        status: 200,
+      }),
+    );
+
+    await api.searchTransactions();
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('/transactions/search');
+  });
 });

@@ -163,5 +163,114 @@ describe('AuthCallback page', () => {
     // In MemoryRouter, we can't easily test navigation, but we can verify button exists
     expect(loginButton).toBeInTheDocument();
   });
+
+  it('handles error response with text body when JSON parsing fails', async () => {
+    window.location.search = '?code=test-code';
+    // Mock a response where json() throws but text() returns content
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: () => Promise.reject(new Error('Invalid JSON')),
+      text: () => Promise.resolve('Server Error - Invalid Request'),
+    });
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authentication Error/i)).toBeInTheDocument();
+      expect(screen.getByText(/Server Error/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles fetch throwing an error', async () => {
+    window.location.search = '?code=test-code';
+    fetchMock.mockRejectedValueOnce(new Error('Network failure'));
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authentication Error/i)).toBeInTheDocument();
+      expect(screen.getByText(/Network failure/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles direct access token without refresh token', async () => {
+    window.location.hash = '#access_token=token-123';
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(localStorage.getItem('access_token')).toBe('token-123');
+    }, { timeout: 2000 });
+
+    // No refresh token should be stored
+    expect(localStorage.getItem('refresh_token')).toBeNull();
+  });
+
+  it('handles code exchange success without refresh token', async () => {
+    window.location.search = '?code=test-code';
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: 'access-123',
+          // No refresh_token
+        }),
+        { status: 200 },
+      ),
+    );
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(localStorage.getItem('access_token')).toBe('access-123');
+    }, { timeout: 2000 });
+
+    expect(localStorage.getItem('refresh_token')).toBeNull();
+  });
+
+  it('handles error without error_description', async () => {
+    window.location.search = '?error=access_denied';
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authentication Error/i)).toBeInTheDocument();
+      expect(screen.getByText(/access_denied/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles error from hash instead of query params', async () => {
+    window.location.hash = '#error=invalid_request&error_description=Bad%20Request';
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Authentication Error/i)).toBeInTheDocument();
+      expect(screen.getByText(/Bad Request/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles code in hash params', async () => {
+    window.location.hash = '#code=hash-code';
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: 'access-from-hash',
+        }),
+        { status: 200 },
+      ),
+    );
+
+    renderWithRouter(<AuthCallback />, { route: '/auth/callback' });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/exchange-code'),
+        expect.objectContaining({
+          body: JSON.stringify({ code: 'hash-code' }),
+        }),
+      );
+    });
+  });
 });
 
