@@ -157,7 +157,7 @@ const categoryMappings: CategoryMapping[] = [
 /**
  * Automatically categorize a transaction based on its name and merchant
  */
-export function autoCategorizeTrans action(
+export function autoCategorizeTransaction(
   transactionName: string,
   merchantName?: string | null
 ): string {
