@@ -262,8 +262,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
               transaction_type: 'expense',
               is_subscription: isSubscription,
-              is_active: stream.status === 'ACTIVE',
-              total_occurrences: stream.transaction_count || 0,
+              is_active: stream.status === 'MATURE',
+              total_occurrences: stream.transaction_ids ? stream.transaction_ids.length : 0,
               notes: stream.category?.join(', ') || null,
             });
           }
@@ -286,8 +286,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               next_due_date: calculateNextDueDate(stream.last_date, stream.frequency),
               transaction_type: 'income',
               is_subscription: false,
-              is_active: stream.status === 'ACTIVE',
-              total_occurrences: stream.transaction_count || 0,
+              is_active: stream.status === 'MATURE',
+              total_occurrences: stream.transaction_ids ? stream.transaction_ids.length : 0,
               notes: stream.category?.join(', ') || null,
             });
           }
