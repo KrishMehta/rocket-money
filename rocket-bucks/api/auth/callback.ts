@@ -18,7 +18,9 @@ async function handleOAuthInitiation(req: VercelRequest, res: VercelResponse) {
     const baseUrl = getBaseUrl(req);
     
     // The callback URL that Supabase will redirect to after Google auth
-    const redirectTo = `${baseUrl}/api/auth/callback`;
+    // Use the frontend callback page (/auth/callback) since Supabase uses implicit flow
+    // which puts tokens in URL fragment (#), and fragments are only accessible client-side
+    const redirectTo = `${baseUrl}/auth/callback`;
 
     console.log('🔐 Initiating Google OAuth, redirect URL:', redirectTo);
 
