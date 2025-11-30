@@ -1,8 +1,8 @@
 import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSupabaseClient } from '../../lib/supabase';
-import { decrypt, isEncrypted } from '../../lib/encryption';
-import { autoCategorizeTransaction } from '../../lib/categorization';
+import { createSupabaseClient } from '../../lib/supabase.js';
+import { decrypt, isEncrypted } from '../../lib/encryption.js';
+import { autoCategorizeTransaction } from '../../lib/categorization.js';
 
 // Initialize Plaid client
 const configuration = new Configuration({

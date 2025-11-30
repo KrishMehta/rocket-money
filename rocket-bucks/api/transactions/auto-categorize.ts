@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSupabaseClient } from '../../lib/supabase';
-import { autoCategorizeTransaction } from '../../lib/categorization';
+import { createSupabaseClient } from '../../lib/supabase.js';
+import { autoCategorizeTransaction } from '../../lib/categorization.js';
 
 /**
  * Auto-categorize all transactions that are currently uncategorized

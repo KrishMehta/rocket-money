@@ -1,7 +1,7 @@
 import { Configuration, PlaidApi, PlaidEnvironments, CountryCode } from 'plaid';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSupabaseClient } from '../lib/supabase';
-import { encrypt } from '../lib/encryption';
+import { createSupabaseClient } from '../lib/supabase.js';
+import { encrypt } from '../lib/encryption.js';
 
 // Initialize Plaid client
 const configuration = new Configuration({

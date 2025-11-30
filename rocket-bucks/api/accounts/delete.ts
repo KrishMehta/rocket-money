@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSupabaseClient } from '../../lib/supabase';
+import { createSupabaseClient } from '../../lib/supabase.js';
 
 /**
  * Delete the entire user account and all associated data

@@ -1,6 +1,6 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSupabaseClient } from '../lib/supabase';
+import { createSupabaseClient } from '../lib/supabase.js';
 
 // Initialize Plaid client
 const configuration = new Configuration({
