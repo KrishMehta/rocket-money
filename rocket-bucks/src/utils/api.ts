@@ -30,7 +30,7 @@ export const api = {
    * Google OAuth login
    */
   googleLogin: async (): Promise<{ url: string }> => {
-    const apiUrl = `${getApiUrl()}/auth/google`;
+    const apiUrl = `${getApiUrl()}/auth/callback`;
     console.log('🌐 Calling Google login API:', apiUrl);
     
     try {

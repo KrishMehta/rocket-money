@@ -4,7 +4,57 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+// Get the base URL for redirects
+const getBaseUrl = (req: VercelRequest) => {
+  const host = req.headers.host;
+  const protocol = req.headers['x-forwarded-proto'] || 'https';
+  return `${protocol}://${host}`;
+};
+
+// Handle POST: Initiate Google OAuth (returns URL to redirect to)
+async function handleOAuthInitiation(req: VercelRequest, res: VercelResponse) {
+  try {
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const baseUrl = getBaseUrl(req);
+    
+    // The callback URL that Supabase will redirect to after Google auth
+    const redirectTo = `${baseUrl}/api/auth/callback`;
+
+    console.log('🔐 Initiating Google OAuth, redirect URL:', redirectTo);
+
+    // Generate the OAuth URL for Google sign-in
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      },
+    });
+
+    if (error) {
+      console.error('❌ Google OAuth error:', error);
+      return res.status(400).json({ error: error.message || 'Failed to initiate Google login' });
+    }
+
+    if (!data.url) {
+      console.error('❌ No OAuth URL returned');
+      return res.status(500).json({ error: 'Failed to generate OAuth URL' });
+    }
+
+    console.log('✅ OAuth URL generated successfully');
+    
+    res.json({ url: data.url });
+  } catch (error: any) {
+    console.error('❌ Google OAuth handler error:', error);
+    res.status(500).json({ error: error.message || 'Failed to initiate Google login' });
+  }
+}
+
+// Handle GET: OAuth callback from Google/Supabase
+async function handleOAuthCallback(req: VercelRequest, res: VercelResponse) {
   try {
     // Google OAuth callback - Supabase sends code and state as query params
     const { code, error: oauthError, error_description } = req.query;
@@ -139,3 +189,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // POST: Initiate OAuth (get the Google login URL)
+  if (req.method === 'POST') {
+    return handleOAuthInitiation(req, res);
+  }
+  
+  // GET: Handle OAuth callback from Google
+  if (req.method === 'GET') {
+    return handleOAuthCallback(req, res);
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
