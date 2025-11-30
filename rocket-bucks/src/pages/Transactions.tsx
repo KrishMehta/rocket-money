@@ -25,14 +25,14 @@ const Transactions = () => {
   const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
 
-  // Manually sync transactions from Plaid (rate limited)
+  // Manually sync transactions from Plaid
   const syncTransactionsFromPlaid = async () => {
     try {
       setSyncing(true);
       setSyncError(null);
       console.log('🔄 Manually syncing transactions from Plaid...');
       
-      // Call the manual sync endpoint (rate limited)
+      // Call the manual sync endpoint
       const result = await api.syncTransactions();
       
       setLastSyncTime(new Date());
@@ -42,16 +42,7 @@ const Transactions = () => {
       loadTransactionsFromDB();
     } catch (error: any) {
       console.error('❌ Error syncing transactions:', error);
-      
-      // Handle rate limit error specifically
-      if (error.status === 429 && error.data) {
-        const { hours_remaining, minutes_remaining } = error.data;
-        setSyncError(
-          `Rate limit reached. You can sync again in ${hours_remaining} hour${hours_remaining !== 1 ? 's' : ''} and ${minutes_remaining} minute${minutes_remaining !== 1 ? 's' : ''}.`
-        );
-      } else {
-        setSyncError(error.message || 'Failed to sync transactions');
-      }
+      setSyncError(error.message || 'Failed to sync transactions');
     } finally {
       setSyncing(false);
     }
@@ -348,7 +339,7 @@ const Transactions = () => {
             onClick={syncTransactionsFromPlaid}
             disabled={syncing}
             className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            title="Manually sync transactions from Plaid (limited to once per 24 hours)"
+            title="Manually sync transactions from Plaid"
           >
             <span className={syncing ? 'animate-spin' : ''}>🔄</span>
             {syncing ? 'Syncing...' : 'Sync from Plaid'}

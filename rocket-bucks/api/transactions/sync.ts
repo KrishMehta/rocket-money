@@ -39,9 +39,8 @@ function calculateNextDueDate(lastDate: string | null, frequency: string): strin
 }
 
 /**
- * Manual sync endpoint with 24-hour rate limit
- * Note: This rate limit only applies to manual syncs via the "Sync from Plaid" button
- * Initial syncs when linking a new account (in exchange_public_token) are NOT rate limited
+ * Manual sync endpoint
+ * Allows users to manually sync transactions from Plaid
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -70,33 +69,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (itemsError || !plaidItems || plaidItems.length === 0) {
       return res.status(400).json({ error: 'No accounts connected. Please connect an account first.' });
-    }
-
-    // Check if any item has been synced in the last 24 hours
-    const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    let mostRecentSync: Date | null = null;
-    for (const item of plaidItems) {
-      const itemUpdatedAt = new Date(item.updated_at);
-      if (!mostRecentSync || itemUpdatedAt > mostRecentSync) {
-        mostRecentSync = itemUpdatedAt;
-      }
-    }
-
-    // Rate limiting: Prevent sync if done in last 24 hours
-    if (mostRecentSync && mostRecentSync > twentyFourHoursAgo) {
-      const hoursUntilNextSync = 24 - ((now.getTime() - mostRecentSync.getTime()) / (1000 * 60 * 60));
-      const minutesUntilNextSync = Math.ceil(hoursUntilNextSync * 60);
-      
-      return res.status(429).json({ 
-        error: 'Rate limit exceeded',
-        message: `You can sync again in ${Math.floor(hoursUntilNextSync)} hours and ${minutesUntilNextSync % 60} minutes`,
-        next_sync_available: new Date(mostRecentSync.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-        last_synced: mostRecentSync.toISOString(),
-        hours_remaining: Math.floor(hoursUntilNextSync),
-        minutes_remaining: minutesUntilNextSync % 60
-      });
     }
 
     // Fetch transactions from Plaid for all items
