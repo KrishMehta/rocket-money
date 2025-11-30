@@ -62,7 +62,7 @@ const DeleteAccount = () => {
       setDeleting(true);
       
       // Call the delete API (no plaid_item_id = delete entire user account)
-      const response = await fetch(`${api.getApiUrl()}/accounts/delete`, {
+      const response = await fetch(`${api.getApiUrl()}/accounts`, {
         method: 'DELETE',
         headers: api.getAuthHeaders(),
       });

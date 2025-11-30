@@ -300,7 +300,7 @@ export const api = {
     excluded_from_budget?: boolean;
     is_recurring?: boolean;
   }): Promise<{ transaction: any }> => {
-    const response = await fetch(`${getApiUrl()}/transactions/update?transaction_id=${transactionId}`, {
+    const response = await fetch(`${getApiUrl()}/transactions?transaction_id=${transactionId}`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
       body: JSON.stringify(updates),

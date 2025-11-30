@@ -17,7 +17,7 @@ const configuration = new Configuration({
 const plaidClient = new PlaidApi(configuration);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET' && req.method !== 'POST') {
+  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'PATCH' && req.method !== 'PUT') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -33,6 +33,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
       return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Handle PATCH/PUT - Update a transaction
+    if (req.method === 'PATCH' || req.method === 'PUT') {
+      const { transaction_id } = req.query;
+      const { category_id, user_category_name, notes, tags, excluded_from_budget, is_recurring } = req.body;
+
+      if (!transaction_id) {
+        return res.status(400).json({ error: 'transaction_id is required' });
+      }
+
+      // Build update object with only provided fields
+      const updates: any = {};
+      if (category_id !== undefined) updates.category_id = category_id;
+      if (user_category_name !== undefined) updates.user_category_name = user_category_name;
+      if (notes !== undefined) updates.notes = notes;
+      if (tags !== undefined) updates.tags = tags;
+      if (excluded_from_budget !== undefined) updates.excluded_from_budget = excluded_from_budget;
+      if (is_recurring !== undefined) updates.is_recurring = is_recurring;
+
+      // Update transaction
+      const { data, error } = await supabase
+        .from('transactions')
+        .update(updates)
+        .eq('id', transaction_id)
+        .eq('user_id', user.id) // Ensure user owns this transaction
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating transaction:', error);
+        return res.status(500).json({ error: 'Failed to update transaction' });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+
+      return res.json({ transaction: data });
     }
 
     // Get user's Plaid items
