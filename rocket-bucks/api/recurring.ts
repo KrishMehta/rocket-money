@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         )
       `)
       .eq('user_id', user.id)
-      .order('next_due_date', { ascending: true, nullsLast: true });
+      .order('next_due_date', { ascending: true, nullsFirst: false });
 
     if (active_only === 'true') {
       query = query.eq('is_active', true);
