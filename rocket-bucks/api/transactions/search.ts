@@ -10,6 +10,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    // Check Supabase configuration
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+      console.error('❌ Supabase not configured - missing environment variables');
+      return res.status(500).json({ 
+        error: 'Server configuration error',
+        details: 'Supabase credentials not configured. Please check environment variables.'
+      });
+    }
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -24,24 +33,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Get query parameters
-    const {
-      search,
-      category_id,
-      user_category_name,
-      merchant_name,
-      account_id,
-      start_date,
-      end_date,
-      transaction_type,
-      pending,
-      tags,
-      min_amount,
-      max_amount,
-      limit = 100,
-      offset = 0,
-      sort_by = 'date',
-      sort_order = 'desc',
-    } = req.method === 'GET' ? req.query : req.body;
+    // On Vercel, query params can be strings or arrays, so we need to normalize them
+    const params = req.method === 'GET' ? req.query : req.body;
+    
+    // Helper to get single value (handle arrays from Vercel)
+    const getParam = (key: string, defaultValue: any = undefined) => {
+      const value = params[key];
+      if (value === undefined || value === null) return defaultValue;
+      if (Array.isArray(value)) return value[0];
+      return value;
+    };
+    
+    const search = getParam('search');
+    const category_id = getParam('category_id');
+    const user_category_name = getParam('user_category_name');
+    const merchant_name = getParam('merchant_name');
+    const account_id = getParam('account_id');
+    const start_date = getParam('start_date');
+    const end_date = getParam('end_date');
+    const transaction_type = getParam('transaction_type');
+    const pending = getParam('pending');
+    const tags = getParam('tags');
+    const min_amount = getParam('min_amount');
+    const max_amount = getParam('max_amount');
+    const limit = Number(getParam('limit', 100));
+    const offset = Number(getParam('offset', 0));
+    const sort_by = getParam('sort_by', 'date');
+    const sort_order = getParam('sort_order', 'desc');
 
     // Start building query
     let query = supabase
@@ -66,7 +84,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Apply filters
     if (search) {
       // Full-text search on transaction name
-      query = query.textSearch('name', search, { type: 'websearch' });
+      // Fallback to ilike if textSearch fails (in case index isn't set up)
+      try {
+        query = query.textSearch('name', String(search), { type: 'websearch' });
+      } catch (textSearchError) {
+        // Fallback to case-insensitive search if textSearch isn't available
+        console.warn('textSearch not available, using ilike fallback:', textSearchError);
+        query = query.ilike('name', `%${String(search)}%`);
+      }
     }
 
     if (category_id) {
@@ -101,10 +126,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       query = query.eq('pending', pending === 'true' || pending === true);
     }
 
-    if (tags && Array.isArray(tags)) {
-      query = query.contains('tags', tags);
-    } else if (tags) {
-      query = query.contains('tags', [tags]);
+    if (tags) {
+      let tagsArray: string[];
+      if (Array.isArray(tags)) {
+        tagsArray = tags;
+      } else if (typeof tags === 'string') {
+        // Handle JSON string from URL params
+        try {
+          tagsArray = JSON.parse(tags);
+        } catch {
+          tagsArray = [tags];
+        }
+      } else {
+        tagsArray = [String(tags)];
+      }
+      if (tagsArray.length > 0) {
+        query = query.contains('tags', tagsArray);
+      }
     }
 
     if (min_amount !== undefined) {
@@ -127,7 +165,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (error) {
       console.error('Error searching transactions:', error);
-      return res.status(500).json({ error: 'Failed to search transactions' });
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      return res.status(500).json({ 
+        error: 'Failed to search transactions',
+        details: error.message || 'Unknown database error'
+      });
     }
 
     res.json({
@@ -138,7 +180,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error: any) {
     console.error('Error searching transactions:', error);
-    res.status(500).json({ error: error.message || 'Failed to search transactions' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message || 'Failed to search transactions',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
