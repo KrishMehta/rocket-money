@@ -170,11 +170,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Return transactions from database (more reliable)
+    // Note: Must specify foreign key explicitly because transactions has two relationships to accounts
+    // (account_id and transfer_to_account_id), so we use accounts!account_id to be explicit
     const { data: dbTransactions } = await supabase
       .from('transactions')
       .select(`
         *,
-        accounts (
+        accounts!account_id (
           name,
           mask,
           institution_name,

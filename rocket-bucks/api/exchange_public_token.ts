@@ -185,12 +185,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }).filter((tx: any) => tx.account_id);
 
         if (transactionsToInsert.length > 0) {
-          await supabase
+          const { error: upsertError } = await supabase
             .from('transactions')
             .upsert(transactionsToInsert, {
               onConflict: 'account_id,transaction_id',
             });
-          console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+          
+          if (upsertError) {
+            console.error('❌ Error storing transactions:', upsertError);
+            // Don't fail the whole request if transaction sync fails, but log it
+          } else {
+            console.log(`💾 Stored ${transactionsToInsert.length} transactions in database`);
+          }
         }
       }
     } catch (txError: any) {
