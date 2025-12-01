@@ -72,6 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Fetch transactions from Plaid for all items
+    const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const startDate = thirtyDaysAgo.toISOString().split('T')[0];
     const endDate = now.toISOString().split('T')[0];

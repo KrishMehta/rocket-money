@@ -1896,6 +1896,59 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
+// POST /api/auth/callback - Alias for /api/auth/google (for Vercel compatibility)
+// The frontend calls this endpoint, so we need to support it
+app.post('/api/auth/callback', async (req, res) => {
+  try {
+    // Validate Supabase config
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('❌ Supabase not configured');
+      return res.status(500).json({ 
+        error: 'Server configuration error: Supabase credentials not set. Please check your .env file.' 
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // Use frontend callback URL so we can handle hash fragments
+    const redirectTo = `http://localhost:5173/auth/callback`;
+
+    console.log('🔐 Initiating Google OAuth login (via /api/auth/callback)');
+    console.log('📍 Redirect URL:', redirectTo);
+    console.log('🔑 Supabase URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+    console.log('🔑 Supabase Key:', supabaseAnonKey ? '✅ Set' : '❌ Missing');
+
+    // Generate Google OAuth URL
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectTo,
+      },
+    });
+
+    if (error) {
+      console.error('❌ Google OAuth error:', error);
+      console.error('❌ Error details:', JSON.stringify(error, null, 2));
+      return res.status(400).json({ 
+        error: error.message || 'Failed to initiate Google login',
+        details: 'Check that Google OAuth is enabled in Supabase and redirect URL is configured'
+      });
+    }
+
+    if (!data || !data.url) {
+      console.error('❌ No OAuth URL returned from Supabase');
+      return res.status(500).json({ 
+        error: 'Failed to generate OAuth URL. Check Supabase configuration.' 
+      });
+    }
+
+    console.log('✅ Google OAuth URL generated');
+    res.json({ url: data.url });
+  } catch (error) {
+    console.error('❌ Google auth error:', error);
+    res.status(500).json({ error: error.message || 'Failed to initiate Google login' });
+  }
+});
+
 // Register endpoint - also uses Google OAuth (same as login)
 app.post('/api/auth/register', async (req, res) => {
   // Registration uses the same Google OAuth flow as login
