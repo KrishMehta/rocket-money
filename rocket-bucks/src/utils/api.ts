@@ -215,7 +215,7 @@ export const api = {
     synced_count: number;
     synced_at: string;
   }> => {
-    const response = await fetch(`${getApiUrl()}/transactions/sync`, {
+    const response = await fetch(`${getApiUrl()}/transactions?action=sync`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
@@ -276,7 +276,8 @@ export const api = {
       });
     }
 
-    const response = await fetch(`${getApiUrl()}/transactions/search?${queryParams.toString()}`, {
+    queryParams.append('action', 'search');
+    const response = await fetch(`${getApiUrl()}/transactions?${queryParams.toString()}`, {
       method: 'GET',
       headers: getAuthHeaders(),
     });
@@ -463,7 +464,7 @@ export const api = {
     categorized_count: number;
     uncategorized_count: number;
   }> => {
-    const response = await fetch(`${getApiUrl()}/transactions/auto-categorize`, {
+    const response = await fetch(`${getApiUrl()}/transactions?action=auto-categorize`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
